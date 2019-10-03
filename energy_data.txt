@@ -1,0 +1,7 @@
+1                   !epsilon     
+1                   !sigma       
+2.5D0               !rc_lj       
+3.5D0               !rv_lj       
+1.D0                !rsk_lj  
+1                   !R0_2        
+400D0               !Kvir           
