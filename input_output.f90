@@ -14,37 +14,72 @@ subroutine initialize_parameters
   use global_variables
   implicit none
   logical alive 
-
-  !
-  !Judge whether restart or continue
-  Inquire(file='start_time.txt',exist=alive)
-  if (alive) then
-    open(11,file='./start_time.txt')
-      read(11,*) restart_or_continue
-    close(11)
-  else
-    restart_or_continue=0
-  end if
-
   !
   !Input parameters
   call read_data
-
+  !
   ! data operation
-  NN = Nml*Ngl
-
-  Lx = (NN/rho)**(1./3)
-  Ly = Lx
-  Lz = Lx
-
+  call data_operation
+  !
   !Write data
   call write_data_to_screen
-
   !
   !Allocate arrays and initialize them
-  call allocatte_arrays_and_initialize
+  call data_allocate
 
 end subroutine initialize_parameters
+
+subroutine data_operation
+  use global_variables
+  implicit none
+  integer :: i, charge_ions
+
+  Npe = Nml * Ngl
+  if ( abs(qq) == 0 ) then
+    Nq_PE = 0
+  else
+    if (man/=0) then
+      Nq_PE = Nml/man*Nga
+    else
+      Nq_PE = 0
+    end if
+  end if
+  Nq_net = Nq_PE
+  !
+  ! number of salt particles
+  if ( abs(qqi) ==0 ) then
+    Nq_salt_ions = 0
+  else
+    charge_ions = nint( ion_ratio * Nq_PE * abs(qq) )
+    Nq_salt_ions = nint( charge_ions / abs(qqi) )
+  end if
+  !
+  ! charges on cylinder
+  Nqc = nint( Lz * rho_c )
+  qqc = 500 / Nqc
+  !
+  ! total charges and particles
+  Nq = Nq_PE * ( abs(qq)+1 ) + Nq_salt_ions * ( abs(qqi) + 1 ) + 500 + Nqc
+  NN = Npe + Nq - Nq_PE
+  !
+  !System size
+  Lx = sqrt(Ngl/rho/Lz)
+  Ly = Lx
+  ratio_xz = Lx / Lz
+  !
+  !Judge whether restart or continue
+  if (restart_or_continue==1) then
+    Inquire(file='start_time.txt',exist=alive)
+    if (alive) then
+      open(11,file='./start_time.txt')
+        read(11,*) restart_or_continue
+      close(11)
+    else
+      restart_or_continue=0
+    end if
+  end if
+
+end subroutine data_operation
 
 
 subroutine read_data
@@ -52,18 +87,23 @@ subroutine read_data
   implicit none
 
   open(unit=100, file='system_data.txt')
+    read(100,*) restart_or_continue
     read(100,*) rho
+    read(100,*) Lz
     read(100,*) Beta
     read(100,*) Nml
     read(100,*) Ngl
+    read(100,*) man
+    read(100,*) qq
+    read(100,*) qqi
+    read(100,*) rho_c
+    read(100,*) ion_ratio
     read(100,*) R_bond
     read(100,*) StepNum0
     read(100,*) StepNum
+    read(100,*) DeltaStep
     read(100,*) DeltaStep1
     read(100,*) DeltaStep2
-    read(100,*) dr
-    read(100,*) best_accpt_ratio
-    read(100,*) delta_dr
   close(100)
 
 end subroutine read_data
@@ -73,24 +113,41 @@ subroutine write_data_to_screen
   use global_variables
   implicit none
 
+  write(*,*)
+  write(*,*)
   write(*,*) '******************system_data***********************'
-  write(*,*) 'Total chains,             Ngl:',    Ngl
-  write(*,*) 'Particles of each chain,  Nml:',    Nml
-  write(*,*) 'Total particles,          NN :',    NN
-  write(*,*) 'Bond length of polymer,   R_bond:', R_bond
-  write(*,*) 'Length of the box,        Lx :',    Lx
-  write(*,*) 'Width of the box,         Ly :',    Ly
-  write(*,*) 'Height of the box,        Lz :',    Lz
+  write(*,*) 'Total chains,                          Ngl:', Ngl
+  write(*,*) 'Particles of each chain,               Nml:', Nml
+  write(*,*) 'Total particles,                       NN :', NN
+  write(*,*) 'Bond length of polymer,             R_bond:', R_bond
+  write(*,*) 'Length of the box,                     Lx :', Lx
+  write(*,*) 'Width of the box,                      Ly :', Ly
+  write(*,*) 'Height of the box,                     Lz :', Lz
+  write(*,*) 'Beta=1/kT,                            Beta:', Beta
+  write(*,*) 'Charges of polymer,                     qq:', qq
+  write(*,*) 'Charges of salt ions,                  qqi:', qqi
+  write(*,*) 'Each man_s monomers with one charge, man_s:', man_s
+  write(*,*) 'total charged particles,                Nq:', Nq
+  write(*,*) 'total charged particles in polymer,  Nq_PE:', Nq_PE
+  write(*,*) 'total brushes particles,               Npe:', Npe
+  write(*,*) 'total charged salt particles: Nq_salt_ions:', Nq_salt_ions
+  write(*,*) 'pH-pKa,                             pH-pKa:', pH_pKa
   write(*,*) '****************************************************'
 
+  write(*,*)
   write(*,*) '******************running_steps*********************'
-  write(*,*) 'Preheating steps             :', StepNum0
-  write(*,*) 'Running steps                :', StepNum
-  write(*,*) 'Total steps                  :', (StepNum0+StepNum)
-  write(*,*) 'DeltaStep1                   :', DeltaStep1
-  write(*,*) 'DeltaStep2                   :', DeltaStep2
-  write(*,*) 'Distance of each move        :', dr
+  write(*,*) 'restart (0), continue (0), restart_continue:',restart_or_continue
+  write(*,*) 'Preheating steps                           :', StepNum0
+  write(*,*) 'Running steps                              :', StepNum
+  write(*,*) 'Total steps                                :', (StepNum0+StepNum)
+  write(*,*) 'DeltaStep                                  :', DeltaStep
+  write(*,*) 'DeltaStep1                                 :', DeltaStep1
+  write(*,*) 'DeltaStep2                                 :', DeltaStep2
+  write(*,*) 'DeltaStep3                                 :', DeltaStep3
   write(*,*) '****************************************************'
+  write(*,*)
+  write(*,*)
+
 end subroutine write_data_to_screen
 
 
@@ -98,8 +155,10 @@ subroutine allocatte_arrays_and_initialize
   use global_variables
   implicit none
 
-  allocate( pos(NN, 3) )
-  allocate( rdf(500,2) )
+  allocate( pos(NN, 5) )
+  allocate( pos_new(Nml,5) )
+  allocate( pos_old(Nml,5) )
+  allocate( rdf(SizeHist,2) )
 
   rdf = 0
 
@@ -116,7 +175,7 @@ subroutine continue_read_data(l)
   integer :: i, j 
 
   open(20,file='./data/pos1.txt')
-    read(20,*) ((pos(i,j),j=1,3),i=1,NN)
+    read(20,*) ((pos(i,j),j=1,5),i=1,NN)
   close(20)
   open(19,file='./start_time.txt')
     read(19,*)
@@ -126,7 +185,7 @@ subroutine continue_read_data(l)
   close(19)
 
   open(21, file = './data/rdf.txt')
-    read(21,*) ((rdf(i,j),j=1,2),i=1,500)
+    read(21,*) ((rdf(i,j),j=1,2),i=1,SizeHist)
   close(21)
   
 end subroutine continue_read_data

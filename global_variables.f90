@@ -12,13 +12,27 @@ module global_variables
   integer :: Ngl      !Number of linear chains
   integer :: Nml      !Number of monomers in each chain
   integer :: NN       !Total particles in the system
-  real*8  :: rho      !Polymer monomer number density 
+  integer :: Nq       !Total charge in the system
+  integer :: Nqc      !charges on cylinder
+  integer :: Npe      !Total monomers in Polyelectrolytes(PE)
+  integer :: Nq_PE    !charges on PE
+  integer :: Nq_net   !net charges on PE
+  integer :: Nq_salt_ions ! salt ions
+  integer :: man      !Manning effect, each man particle have one charge
+  real*8  :: rho      !Polymer monomer number density
+  real*8  :: rho_c    !line charge density on cylinder 
+  real*8  :: qq       !Charge of charged monomers
+  real*8  :: qqi      !charge of salt
+  real*8  :: qqc      !charge of particles on cylinder
+  real*8  :: ion_ratio!ratio of salt
   real*8  :: Lx       !Length of cell in x direction
   real*8  :: Ly       !Length of cell in y direction
   real*8  :: Lz       !Length of cell in z direction
+  real*8  :: ratio_xz !Rotio of length x and height z of the box
   real*8  :: R_bond   !Initial bond length of polymers
   real*8  :: Beta     !Beta=1/(kB*T), T is temperature, 
                       !kB is Boltzmann constant
+  real*8  :: pH_pKa   !pH - pKa
 !##################end systems coefficient#################!
 
 
@@ -26,6 +40,7 @@ module global_variables
   integer :: restart_or_continue  !restart or continue after breaking off 
   integer :: StepNum0             !steps of preheating
   integer :: StepNum              !steps of running
+  integer :: DeltaStep            !steps of pH titeration
   integer :: DeltaStep1           !step inteval, physical quantities
   integer :: DeltaStep2           !step inteval, write data
   integer :: step                 !steps of calculate the physical quantities
@@ -48,10 +63,12 @@ module global_variables
 
 !##########################arrays##########################!
  real*8, allocatable, dimension(:,:) :: pos     !old position array
-!real*8, allocatable, dimension(:,:) :: pos_old !old position of part of chains
+ real*8, allocatable, dimension(:,:) :: pos_old !new position of part of chains
  real*8, allocatable, dimension(:,:) :: pos_new !new position of part of chains
  integer :: ic_newconf                          !The chain that is choosed
- integer :: ib_newconf                          !Numbers of monomers regrowed
+ integer :: ib_newconf                        !order of first monomer regrowed
+ integer :: num_newconf                         !numbers of monomers regrowed
+ integer :: cas                                 !4 cases
  integer :: k_try                               !try numbers
 !########################end arrays########################!
 

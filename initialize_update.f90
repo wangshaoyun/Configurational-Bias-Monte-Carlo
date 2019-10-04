@@ -178,11 +178,11 @@ subroutine CBMC_Move( EE, DeltaE )
   real*8, intent(out)   :: DeltaE
   integer :: m, n
   real*8 :: EE1, EE2, wo, wn
-  logical :: new_conf
 
   n = 0
   do while ( n <= NN )
-  !     call total_energy(EE1)
+
+    call choose_chains
 
     call retrace( wo )
 
@@ -190,14 +190,59 @@ subroutine CBMC_Move( EE, DeltaE )
 
     call Move_or_not( wo, wn )
 
-    n = n + ib
-    !
-    !test EE2-EE1 = DeltaE
-  !     call total_energy(EE2)
-  !     write(*,*) EE2 - EE1, DeltaE, EE2, EE1  
+    n = n + num_newconf
+
   end do
 
 end subroutine CBMC_Carlo_Move
+
+
+subroutine choose_chains
+  use global_variables
+  implicit none
+  real*8 :: rnd
+  integer :: i, base
+
+  call random_number(rnd)
+  ic_newconf = int(rnd*Ngl) + 1
+
+  call random_number(rnd)
+  num_newconf = int(rnd*Nml) + 1       !regrow particles
+
+  call random_number(rnd)
+  cas = int(4*rnd) + 1
+
+  base = (ic_newconf-1)*Nml
+  ib_newconf = base + Nml - num_newconf + 1
+
+  select case ( cas )
+
+    case (1) ! Remove from end and add to end
+
+      pos_old = pos(base+1:base+Nml,:)
+      pos_new = pos_old
+
+    case (2) ! Remove from end and add to start
+
+      pos_old = pos(base+1:base+Nml,:)
+      pos_new(1:Nml-num_newconf,:) = pos(ib_newconf-1:base+1:-1,:)
+      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+Nml:ib_newconf:-1,4:5)
+
+    case (3) ! Remove from start and add to end
+
+      pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
+      pos_new(1:Nml-num_newconf,:) = pos(base+num_newconf+1:base+Nml,:)
+      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+1:base+num_newconf,4:5)
+
+    case (4) ! Remove from start and add to start
+
+      pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
+      pos_new(1:Nml-num_newconf,:) = pos(base+Nml:base+num_newconf+1:-1,:)
+      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+num_newconf:base+1:-1,4:5)
+
+  end select
+
+end subroutine choose_chains
 
 
 subroutine retrace( w )
@@ -218,11 +263,12 @@ subroutine retrace( w )
   implicit none
   real*8, intent(out) :: w
   integer :: i, j, k, l, n
-  real*8 :: rnd1, rnd2, ib, ic, sumw, rnd(3)
+  real*8 :: rnd1, rnd2, ip, ib, ic, sumw, rnd(3)
   real*8 :: eni, xt(k_try,3), xn(Nml,3)
 
-  ib = ibnewconf
+  ib = num_newconf
   ic = ic_newconf
+
 
   do i = 1, Nml
     j = ic*Nml - ib + i
@@ -231,6 +277,8 @@ subroutine retrace( w )
 
   w = 1
   do i = 1, ib
+    ip = ic_newconf*Nml - i + 1
+    call retrace_list(ip)
     if ( i == Nml ) then
       xn(1,:) = pos(ic*Nml-ib+1,:)
       xt(1,:) = xn(1,:)
@@ -273,7 +321,7 @@ subroutine regrow( w )
   implicit none
   real*8, intent(out) :: w
   integer :: i, j, k, l, n
-  real*8 :: rnd1, rnd2, ib, ic, sumw, rnd(3)
+  real*8 :: rnd1, rnd2, ip, ib, ic, sumw, rnd(3)
   real*8 :: eni, xt(k_try,3), xn(Nml,3)
 
   call random_number(rnd1)
@@ -312,6 +360,7 @@ subroutine regrow( w )
       call select( wt, sumw, n )
       xn(i, :) = xt(n, :)
     end if
+    call regrow_list(ip)
   end do
   pos_new = xn( Nml-ib+1:Nml, : )
 
@@ -522,7 +571,7 @@ subroutine tors_bonda(xn, b, j)
 end subroutine tors_bonda
 
 
-subroutine Move_or_not(wo, wn, m)
+subroutine Move_or_not(wo, wn)
   !--------------------------------------!
   !
   !   
@@ -538,7 +587,6 @@ subroutine Move_or_not(wo, wn, m)
   !
   !--------------------------------------!
   use global_variables
-  use compute_energy
   implicit none
   real*8,  intent(in) :: wo
   real*8,  intent(in) :: wn
@@ -549,13 +597,64 @@ subroutine Move_or_not(wo, wn, m)
   !Judge whether move or not
   call random_number( rnd )
   if (rnd < (wn/wo) ) then
-    i = ic_newconf * Nml - ib_newconf + 1
-    j = ic_newconf * Nml
-    pos(i:j,:) = pos_new(:,:)
-    accpt_num = accpt_num + m
+    pos((ic_newconf-1)*Nml+1:ic_newconf*Nml,:) = pos_new(:,:)
+    accpt_num = accpt_num + num_newconf
+!     call grow_list(.true.)
+  else
+    call grow_list(.false.)
   end if
-  total_num = total_num + m
+  total_num = total_num + num_newconf
 end subroutine Move_or_not
+
+
+subroutine grow_list(new_conf)
+  use compute_energy
+  implicit none
+  logical, intent(in) :: new_conf
+
+  call add_rho_k_CBMC(new_conf)
+
+  call add_cell_list_r1_CBMC(new_conf)
+
+  call add_cell_list_r2_CBMC(new_conf)
+
+  call add_cell_list_lj_CBMC(new_conf)
+
+end subroutine grow_list
+
+
+subroutine retrace_list(ip)
+  use global_variables
+  use compute_energy
+  implicit none
+  integer :: ip
+
+  call delete_rho_k_CBMC(ip)
+
+  call delete_cell_list_r1_CBMC(ip)
+
+  call delete_cell_list_r2_CBMC(ip)
+
+  call delete_cell_list_lj_CBMC(ip)
+
+end subroutine retrace_list
+
+
+subroutine regrow_list(ip)
+  use global_variables
+  use compute_energy
+  implicit none
+  integer :: ip
+
+  call delete_rho_k_CBMC(ip)
+
+  call delete_cell_list_r1_CBMC(ip)
+
+  call delete_cell_list_r2_CBMC(ip)
+
+  call delete_cell_list_lj_CBMC(ip)
+
+end subroutine regrow_list
 
 
 end module initialize_update

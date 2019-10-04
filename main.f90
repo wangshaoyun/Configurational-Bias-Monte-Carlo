@@ -19,30 +19,35 @@ implicit none
   !input and initialize system, timing and histogram parameters.
   call initialize_parameters
   !
+  !initialize energy and parameters of potential
+  call initialize_energy_parameters
+  !
   !
   if (restart_or_continue /= 1 ) then
     !
     !initialize position
     call Initialize_position
+    !
+    !initialize energy arrays
+    call initialize_energy_arrays
+    !
+    !output data
     call write_pos
     call write_pos1(1)
     !
-    !initialize energy and parameters of potential
-    call initialize_energy_parameters
-    !
     !Compute total energy
-    call total_energy(EE)
+    call error_analysis(EE)
     i=1
   else
     !
     !read position and histogram data
     call continue_read_data(i)
     !
-    !initialize energy and parameters of potential
-    call initialize_energy_parameters
+    !initialize energy arrays
+    call initialize_energy_arrays
     !
     !Compute total energy
-    call total_energy(EE)
+    call error_analysis(EE)
   end if
 !#####################################!
 

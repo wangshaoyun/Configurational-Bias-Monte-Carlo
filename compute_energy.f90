@@ -11,30 +11,132 @@ module compute_energy
   save
 
 !############coefficient in potential function#############!
-!
-!lj potential
+  !
+  !coulomb
+  real*8,  private :: lb          !Bjerrum length
+  real*8,  private :: tau_rf      !time ratio of real space and fourier space
+  real*8,  private :: alpha       !Ewald screening parameter alpha
+  real*8,  private :: alpha2      !alpha2=alpha*alpha
+  real*8,  private :: tol
+  !
+  !real space, cut off at small radius
+  real*8,  private :: rcc0         !Cut off radius of real space
+  real*8,  private :: rcc02        !rcc2=rcc*rcc  !
+  real*8,  private :: clx0         !length of cell in x direction
+  real*8,  private :: cly0         !length of cell in y direction
+  real*8,  private :: clz0         !length of cell in z direction
+  integer, private :: nclx0        !number of cell in x direction
+  integer, private :: ncly0        !number of cell in y direction
+  integer, private :: nclz0        !number of cell in z direction 
+  !
+  !real space, cut off at large radius
+  real*8,  private :: rcc1         !Cut off radius of real space
+  real*8,  private :: rcc12        !rcc2=rcc*rcc  !
+  real*8,  private :: clx1         !length of cell in x direction
+  real*8,  private :: cly1         !length of cell in y direction
+  real*8,  private :: clz1         !length of cell in z direction
+  integer, private :: nclx1        !number of cell in x direction
+  integer, private :: ncly1        !number of cell in y direction
+  integer, private :: nclz1        !number of cell in z direction 
+  !
+  !reciprocal space
+  integer, private :: Kmax1       !max wave number of x direction
+  integer, private :: Kmax2       !max wave number of y direction 
+  integer, private :: Kmax3       !max wave number of z direction 
+  integer, private :: K_total     !Total wave number in reciprocal space
+  !
+  !lj
   real*8,  private :: epsilon     !Energy unit epsilon in lj potential
   real*8,  private :: sigma       !Distance sigma in lj potential
-  real*8,  private :: rc_lj       !Cut off radius of LJ potential
-  real*8,  private :: rv_lj       !Verlet list radius of LJ potential
-  real*8,  private :: rsk_lj      !Skin between cut off sphere and verlet list 
-                                  !sphere
-  integer, private :: npair1      !number of pairs in the lj verlet sphere
-!
-!fene potential
-  real*8,  private :: R0_2        !Max bond length R0 square in FENE potential
-  real*8,  private :: Kvib        !FENE spring constant k
-  integer, private :: N_bond      !Number of Chemical bond of polymers
-!##########end coefficient in potential function###########!
+  real*8,  private :: rcl         !Cut off radius of LJ potential
+  real*8,  private :: rcl2        !rcc2=rcc*rcc  !
+  real*8,  private :: clx         !length of cell in x direction
+  real*8,  private :: cly         !length of cell in y direction
+  real*8,  private :: clz         !length of cell in z direction
+  integer, private :: nclx        !number of cell in x direction
+  integer, private :: ncly        !number of cell in y direction
+  integer, private :: nclz        !number of cell in z direction 
 
 
 !##########################arrays##########################!
-  integer, allocatable, dimension( : ), private :: lj_pair_list  
-                                  !LJ potential verlet list
-  integer, allocatable, dimension( : ), private :: lj_point
-                                  !the particles near i are from
-                                  !lj_pair_list(lj_point(i-1)) to 
-                                  !lj_pair_list(lj_point(i))
+  !
+  !charge number to monomer number        
+  integer, allocatable, dimension( : )          :: charge
+  !  
+  !monomer number to charge number
+  integer, allocatable, dimension( : ), private :: inv_charge
+  !
+  !cell list of charge
+  integer, allocatable, dimension( : ), private :: cell_list_q
+  !
+  !inverse cell list of charge
+  integer, allocatable, dimension( : ), private :: inv_cell_list_q
+  !
+  !neighbor cells of the center cell
+  integer, allocatable, dimension(:,:,:), private :: cell_near_list_lj
+  !
+  !cell list in real space
+  integer, allocatable, dimension( : ), private :: cell_list_lj
+  !
+  !inverse cell list in real space
+  integer, allocatable, dimension( : ), private :: inv_cell_list_lj
+  !
+  ! head of chains, cell list
+  integer, allocatable, dimension(:,:,:), private :: hoc_lj  
+  !
+  ! head of chains, inverse cell list
+  integer, allocatable, dimension(:,:,:), private :: inv_hoc_lj
+  !
+  !neighbor cells of the center cell
+  integer, allocatable, dimension(:,:,:), private :: cell_near_list_r0
+  !
+  !cell list in real space
+  integer, allocatable, dimension( : ), private :: cell_list_r0
+  !
+  !inverse cell list in real space
+  integer, allocatable, dimension( : ), private :: inv_cell_list_r0
+  !
+  ! head of chains, cell list
+  integer, allocatable, dimension(:,:,:), private :: hoc_r0     
+  !
+  ! head of chains, inverse cell list
+  integer, allocatable, dimension(:,:,:), private :: inv_hoc_r0
+  !
+  !neighbor cells of the center cell
+  integer, allocatable, dimension(:,:,:), private :: cell_near_list_r1
+  !
+  !cell list in real space
+  integer, allocatable, dimension( : ), private :: cell_list_r1
+  !
+  !inverse cell list in real space
+  integer, allocatable, dimension( : ), private :: inv_cell_list_r1
+  !
+  ! head of chains, cell list
+  integer, allocatable, dimension(:,:,:), private :: hoc_r1     
+  !
+  ! head of chains, inverse cell list
+  integer, allocatable, dimension(:,:,:), private :: inv_hoc_r1
+  !
+  !Coulomb energy of i,j in real space
+  real,  allocatable, dimension(:), private :: real_ij 
+  !
+  !coefficients in Fourier space
+  real*8,  allocatable, dimension( : ), private :: exp_ksqr
+  !
+  !structure factor
+  complex(kind=8), allocatable, dimension( : ), private :: rho_k
+  !
+  !difference of structure factor
+  complex(kind=8), allocatable, dimension( : ), private :: delta_rhok
+  !
+  !difference of structure factor
+  complex(kind=8), allocatable, dimension( : ), private :: delta_rhok1
+  !
+  !difference of structure factor
+  complex(kind=8), allocatable, dimension( : ), private :: delta_cosk
+  !
+  !wave vector ordinal number
+  integer, allocatable, dimension(:,:), private :: totk_vectk
 !########################end arrays########################!
 
 
@@ -73,7 +175,31 @@ subroutine initialize_energy_parameters
     call build_lj_verlet_list
   end if
 
+  !
+  !
+  call initialize_lj_parameters 
+  !
+  !Initialize ewald parameters and array allocate.
+  call Initialize_ewald_parameters
+  !
+  !Construct the array totk_vectk(K_total,3), and allocate
+  !rho_k(K_total), delta_rhok(K_total).
+  call build_totk_vectk
+  !
+  !Construct the coefficients vector in Fourier space
+  call build_exp_ksqr
+  !
+  !
+  call pre_calculate_real_space
+
 end subroutine initialize_energy_parameters
+
+
+subroutine Initialize_energy_arrays
+  use global_variables
+  implicit none
+
+end subroutine Initialize_energy_arrays
 
 
 subroutine total_energy (EE)
@@ -340,18 +466,11 @@ subroutine read_energy_parameters
   open(unit=100, file='energy_data.txt')
     read(100,*) epsilon
     read(100,*) sigma
-    read(100,*) rc_lj
-    read(100,*) rv_lj
-    read(100,*) rsk_lj
-    read(100,*) R0_2
-    read(100,*) Kvib
+    read(100,*) rcl
+    read(100,*) lb
+    read(100,*) tol
+    read(100,*) tau_rf
   close(100)
-
-  if (rc_lj>Lx/20) then
-    rc_lj = Lx/2
-    write(*,*) 'Does not use verlet list!'
-    write(*,*) 'rc_lj=', rc_lj
-  end if
 
 end subroutine read_energy_parameters
 
