@@ -221,24 +221,43 @@ subroutine choose_chains
 
       pos_old = pos(base+1:base+Nml,:)
       pos_new = pos_old
+      inv_ord_conf = inv_pos_ord(base+1:base+Nml)
+      ord_conf = pos_ord(base+1:base+Nml)
 
     case (2) ! Remove from end and add to start
 
       pos_old = pos(base+1:base+Nml,:)
       pos_new(1:Nml-num_newconf,:) = pos(ib_newconf-1:base+1:-1,:)
       pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+Nml:ib_newconf:-1,4:5)
+      inv_ord_conf(1:Nml-num_newconf,:)=inv_pos_ord(ib_newconf-1:base+1:-1) 
+      inv_ord_conf(Nml-num_newconf+1:Nml)=inv_pos_ord(base+Nml:ib_newconf:-1)
+      do i = 1, Nml
+        ord_conf(inv_ord_conf(i)) = i
+      end do 
 
     case (3) ! Remove from start and add to end
 
       pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
       pos_new(1:Nml-num_newconf,:) = pos(base+num_newconf+1:base+Nml,:)
       pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+1:base+num_newconf,4:5)
+      inv_ord_conf(1:Nml-num_newconf)=inv_pos_ord(base+num_newconf+1:base+Nml) 
+      inv_ord_conf(Nml-num_newconf+1:Nml)=inv_pos_ord(base+1:base+num_newconf)
+      do i = 1, Nml
+        ord_conf(inv_ord_conf(i)) = i
+      end do 
 
     case (4) ! Remove from start and add to start
 
       pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
       pos_new(1:Nml-num_newconf,:) = pos(base+Nml:base+num_newconf+1:-1,:)
       pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+num_newconf:base+1:-1,4:5)
+      inv_ord_conf(1:Nml-num_newconf)=&
+            inv_pos_ord(base+Nml:base+num_newconf+1:-1) 
+      inv_ord_conf(Nml-num_newconf+1:Nml)=&
+            inv_pos_ord(base+num_newconf:base+1:-1)
+      do i = 1, Nml
+        ord_conf(inv_ord_conf(i)) = i
+      end do 
 
   end select
 

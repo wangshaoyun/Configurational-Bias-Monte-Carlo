@@ -65,6 +65,10 @@ module global_variables
  real*8, allocatable, dimension(:,:) :: pos     !old position array
  real*8, allocatable, dimension(:,:) :: pos_old !new position of part of chains
  real*8, allocatable, dimension(:,:) :: pos_new !new position of part of chains
+ integer, allocatable, dimension(:)  :: pos_ord     !
+ integer, allocatable, dimension(:)  :: inv_pos_ord !
+ integer, allocatable, dimension(:)  :: ord_conf    !
+ integer, allocatable, dimension(:)  :: inv_ord_conf!
  integer :: ic_newconf                          !The chain that is choosed
  integer :: ib_newconf                        !order of first monomer regrowed
  integer :: num_newconf                         !numbers of monomers regrowed

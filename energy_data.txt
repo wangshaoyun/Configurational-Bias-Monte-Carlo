@@ -1,6 +1,7 @@
 1                   !epsilon     
 1                   !sigma       
-2.5D0               !rcl       
+2.5D0               !rcl 
+3.D0                !rcc0      
 3                   !lb
 2.2                 !tol
 40                  !tau_rf

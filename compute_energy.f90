@@ -118,7 +118,10 @@ module compute_energy
   integer, allocatable, dimension(:,:,:), private :: inv_hoc_r1
   !
   !Coulomb energy of i,j in real space
-  real,  allocatable, dimension(:), private :: real_ij 
+  real,  allocatable, dimension(:), private :: real_ij0
+  !
+  !Coulomb energy of i,j in real space
+  real,  allocatable, dimension(:), private :: real_ij1
   !
   !coefficients in Fourier space
   real*8,  allocatable, dimension( : ), private :: exp_ksqr
@@ -165,32 +168,24 @@ subroutine initialize_energy_parameters
   !
   !read energy parameters from file
   call read_energy_parameters
-
-  if (rc_lj<Lx/20) then
+  if ( qq /= 0 ) then
     !
-    !Initialize lj parameters and array allocate.
-    call initialize_lj_parameters
     !
-    !build lj_pair_list and lj_point
-    call build_lj_verlet_list
+    call initialize_lj_parameters 
+    !
+    !Initialize ewald parameters and array allocate.
+    call Initialize_ewald_parameters
+    !
+    !Construct the array totk_vectk(K_total,3), and allocate
+    !rho_k(K_total), delta_rhok(K_total).
+    call build_totk_vectk
+    !
+    !Construct the coefficients vector in Fourier space
+    call build_exp_ksqr
+    !
+    !
+    call pre_calculate_real_space
   end if
-
-  !
-  !
-  call initialize_lj_parameters 
-  !
-  !Initialize ewald parameters and array allocate.
-  call Initialize_ewald_parameters
-  !
-  !Construct the array totk_vectk(K_total,3), and allocate
-  !rho_k(K_total), delta_rhok(K_total).
-  call build_totk_vectk
-  !
-  !Construct the coefficients vector in Fourier space
-  call build_exp_ksqr
-  !
-  !
-  call pre_calculate_real_space
 
 end subroutine initialize_energy_parameters
 
@@ -198,6 +193,23 @@ end subroutine initialize_energy_parameters
 subroutine Initialize_energy_arrays
   use global_variables
   implicit none
+
+  if ( qq /= 0 ) then
+    !
+    !Initialize charge with lind list. From this subroutine, pos array is needed.
+    call Build_Charge_Ewald
+    !
+    !Initialize cell list of charge
+    call Initialize_cell_list_q_Ewald
+    !
+    !Initialize real cell list
+    call Initialize_real_cell_list_Ewald
+    !
+    !Construct the structure factor rho_k
+    call build_rho_k
+  end if
+
+  call write_energy_parameters_Ewald
 
 end subroutine Initialize_energy_arrays
 
@@ -467,6 +479,7 @@ subroutine read_energy_parameters
     read(100,*) epsilon
     read(100,*) sigma
     read(100,*) rcl
+    read(100,*) rcc0
     read(100,*) lb
     read(100,*) tol
     read(100,*) tau_rf
@@ -475,57 +488,307 @@ subroutine read_energy_parameters
 end subroutine read_energy_parameters
 
 
-subroutine compute_pressure (pressure)
-  !----------------------------------------!
-  !input:
-  !  pos
-  !output:
-  !  pressure
-  !External Variables:
-  !  Ngl, Nml, Npe, NN,
-  !Reference:
-  !Frenkel, Smit, 'Understanding molecular simulation: from
-  !algorithm to applications', Elsevier, 2002, pp.52, Eq. (3.4.1).
-  !----------------------------------------!
+subroutine initialize_lj_parameters
   use global_variables
   implicit none
-  real*8, intent(out) :: pressure
-  integer i,j,k
-  real*8 :: rr, vir, inv_r2, inv_r6, rc_lj2
-  real*8, dimension(3) :: rij, fij
 
-  vir = 0
-  rc_lj2 = rc_lj * rc_lj
-  do i = 1, NN
-    do j = i+1, NN
-      call rij_and_rr(rij, rr, i, j)
-      if (rr<rc_lj2) then
-        inv_r2 = sigma*sigma / rr
-        inv_r6 = inv_r2*inv_r2*inv_r2
-        fij = 48 * epsilon * inv_r2 * inv_r6 * (inv_r6-0.5) * rij
-        vir = vir + dot_product(fij,rij)/3
-      end if
-    end do 
-    if ( mod(i,Nml)==1 ) then
-      call rij_and_rr(rij, rr, i, i+1)
-      fij = Kvib * ( 1 - sqrt(R0_2/rr) ) * rij
-      vir = vir + dot_product(fij,rij)/3/2
-    elseif ( mod(i,Nml)==0 ) then
-      call rij_and_rr(rij, rr, i, i-1)
-      fij = Kvib * ( 1 - sqrt(R0_2/rr) ) * rij
-      vir = vir + dot_product(fij,rij)/3/2
-    else
-      call rij_and_rr(rij, rr, i, i+1)
-      fij = Kvib * ( 1 - sqrt(R0_2/rr) ) * rij
-      vir = vir + dot_product(fij,rij)/3/2
-      call rij_and_rr(rij, rr, i, i-1)
-      fij = Kvib * ( 1 - sqrt(R0_2/rr) ) * rij
-      vir = vir + dot_product(fij,rij)/3/2
-    end if
+  rcl2 = rcl*rcl
+  nclx = int(Lx/(rcl+1))
+  ncly = int(Ly/(rcl+1))
+  nclz = int(Lz/(rcl+1))
+
+  clx = Lx/nclx
+  cly = Ly/ncly
+  clz = Lz/nclz
+
+end subroutine initialize_lj_parameters
+
+
+subroutine Initialize_ewald_parameters
+  use global_variables
+  implicit none
+
+  alpha    = ( tau_rf * pi**3 * Nq / (Lx*Ly*Lz*Z_empty)**2 ) ** (1.D0/6)
+  alpha2   = alpha * alpha
+  rcc1  = tol / alpha
+  rcc12 = rcc1 * rcc1
+  if (rcc1<min(Lx/3,Lz/3)) then
+    !
+    !use verlet list in real space
+    Kmax1 = ceiling(tol*Lx*alpha/pi)
+    Kmax2 = ceiling(tol*Ly*alpha/pi)
+    Kmax3 = ceiling(tol*Lz*alpha/pi)
+  else
+    rcc1 = min(Lx/3,Lz/3)
+    Kmax1    = ceiling(tol*tol/pi*Lx/rcc)
+    Kmax2    = ceiling(tol*tol/pi*Ly/rcc)
+    Kmax3    = ceiling(tol*tol/pi*Lz/rcc)
+    alpha    = tol / rcc1
+    alpha2   = alpha * alpha
+    rcc12 = rcc1 * rcc1
+  end if
+  !
+  !Cell list parameters
+  nclx1 = int(Lx/rcc1)     !cell numbers in x direction
+  ncly1 = int(Ly/rcc1)
+  nclz1 = int(Lz/rcc1)
+  clx1 = Lx/nclx1         !cell length    
+  cly1 = Ly/ncly1
+  clz1 = Lz/nclz1
+
+  rcc02 = rcc0*rcc0
+
+  nclx0 = int(Lx/rcc0)    !cell numbers in x direction
+  ncly0 = int(Ly/rcc0)
+  nclz0 = int(Lz/rcc0)
+  clx0 = Lx/nclx1         !cell length    
+  cly0 = Ly/ncly1
+  clz0 = Lz/nclz1
+
+end subroutine Initialize_ewald_parameters
+
+
+subroutine pre_calculate_real_space
+  use global_variables
+  implicit none
+  integer :: n=200000, i
+  real*8 :: del_r, rr
+
+  if (allocated(real_ij0)) deallocate(real_ij0)
+  if (allocated(real_ij1)) deallocate(real_ij1)
+  allocate( real_ij0(n) )
+  allocate( real_ij1(n) )
+
+  del_r = rcc1/n
+  do i = 1, n
+    rr = del_r*i
+    real_ij1(i) = erfc(alpha*rr)/rr 
   end do
-  pressure = rho / Beta + vir / (Lx*Ly*Lz)
 
-end subroutine compute_pressure
+  del_r = rcc0/n
+  do i = 1, n
+    rr = del_r*i
+    real_ij0(i) = erfc(alpha*rr)/rr 
+  end do
+
+end subroutine pre_calculate_real_space
+
+
+subroutine build_totk_vectk
+  !--------------------------------------!
+  !exp_ksqr, rho_k, delta_rhok are all vectors with size of
+  !K_total. For i = 1 to K_total, we often need to know 
+  !corresponding wave number kx,ky,kz. This progam build a 
+  !array totk_vectk(1:K_total,3) to store kx,ky,kz.
+  !What's more, rho_k and delta_rhok are allocated here.
+  !   
+  !Input
+  !   
+  !Output
+  !   totk_vectk
+  !   K_total
+  !External Variables
+  !   K_total, Kmax1, Kmax2, Kmax3
+  !   totk_vectk
+  !Routine Referenced:
+  !   
+  !--------------------------------------!
+  use global_variables
+  implicit none
+  integer :: i, j, k, l
+  real*8  :: ksqr, k1, k2, k3, factor, kcut
+
+  K_total=0
+  do k = 0, Kmax3
+    do i = -Kmax1, Kmax1
+      do j = -Kmax2, Kmax2
+        kcut = (1.D0*i/Kmax1) * (1.D0*i/Kmax1) &
+             + (1.D0*j/Kmax2) * (1.D0*j/Kmax2) &
+             + (1.D0*k/Kmax3) * (1.D0*k/Kmax3)
+        if ( kcut>1 .or. kcut==0 ) cycle
+        K_total = K_total + 1
+      end do
+    end do
+  end do
+
+  if ( allocated(totk_vectk) ) deallocate(totk_vectk)
+  if ( allocated(rho_k)      ) deallocate(rho_k)
+  if ( allocated(delta_rhok) ) deallocate(delta_rhok)
+  if ( allocated(delta_rhok1) ) deallocate(delta_rhok1)
+  if ( allocated(delta_cosk) ) deallocate(delta_cosk)
+  allocate( totk_vectk( K_total, 3 ) )
+  allocate( rho_k( K_total )         )
+  allocate( delta_rhok( K_total )    )
+  allocate( delta_rhok1( K_total )   )
+  allocate( delta_cosk( K_total )    )
+  totk_vectk = 0
+  rho_k      = 0
+  delta_rhok = 0
+  delta_rhok1 = 0
+  delta_cosk = 0
+
+  l=0
+  do k = 0, Kmax3
+    do i = -Kmax1, Kmax1
+      do j = -Kmax2, Kmax2
+        kcut = (1.D0*i/Kmax1) * (1.D0*i/Kmax1) &
+             + (1.D0*j/Kmax2) * (1.D0*j/Kmax2) &
+             + (1.D0*k/Kmax3) * (1.D0*k/Kmax3)
+        if ( kcut>1 .or. kcut==0 ) cycle
+        l = l + 1
+        totk_vectk( l, 1 ) = i
+        totk_vectk( l, 2 ) = j
+        totk_vectk( l, 3 ) = k
+      end do
+    end do
+  end do
+
+end subroutine build_totk_vectk
+
+
+subroutine build_exp_ksqr
+  !--------------------------------------!
+  !Reciprocal energy is divided to three parts: 
+  !1.structrure factor is referred to rho_k.
+  !2.difference of structure factor between new and old
+  !position is referred to delta_rhok.
+  !3.the other which includes exp(k^2/4/alpha) is referred 
+  !to exp_ksqr.
+  !This program is used to bulid the third part.
+  !
+  !Input
+  !   
+  !Output
+  !   exp_ksqr
+  !External Variables
+  !   K_total
+  !   Kmax1, Kmax2, Kmax3
+  !   alpha2, lb
+  !   Lx, Ly, Lz, Z_empty
+  !   Beta
+  !Reference:
+  !Frenkel, Smit, 'Understanding molecular simulation: from
+  !algorithm to applications', Elsevier, 2002, pp.300(12.1.25),
+  !however his alpha is alpha^2 in this program.b 
+  !--------------------------------------!
+  use global_variables
+  implicit none
+  integer :: i, j, k, l, ord(3)
+  real*8  :: ksqr, k1, k2, k3, factor
+
+  if ( allocated(exp_ksqr) ) deallocate(exp_ksqr)
+  allocate( exp_ksqr(K_total) )
+  exp_ksqr = 0
+
+  l = 0
+  do i = 1, K_total
+    ord = totk_vectk(i,:)
+    if ( ord(3) == 0 ) then
+      factor = 1
+    else
+      factor = 2
+    end if
+    k1   = 2*pi*ord(1) / Lx
+    k2   = 2*pi*ord(2) / Ly
+    k3   = 2*pi*ord(3) / Lz
+    ksqr = k1*k1 + k2*k2 + k3*k3 
+    exp_ksqr(i) = factor * 4*pi / (Lx*Ly*Lz) *  &
+                  exp(-ksqr/4/alpha2) / ksqr * lb / Beta     
+  end do
+
+end subroutine build_exp_ksqr
+
+
+subroutine build_rho_k
+  !--------------------------------------!
+  !Calculate the structure factor array.
+  !   
+  !Input
+  !   
+  !Output
+  !   rho_k
+  !External Variables
+  !   pos, charge
+  !   Nq, Lx, Ly, Lz, Z_empty, K_total
+  !Routine Referenced:
+  !1.
+  !--------------------------------------!
+  use global_variables
+  implicit none
+  complex(kind=8) :: eikx(1:Nq, -Kmax1:Kmax1)
+  complex(kind=8) :: eiky(1:Nq, -Kmax2:Kmax2)
+  complex(kind=8) :: eikz(1:Nq, 0:Kmax3)
+  integer i,j,l,m,n,p,q,r,ord(3)
+  real*8 :: c1, c2, c3
+  real*8 :: zq(Nq)
+  rho_k = 0
+  zq = 0
+  eikx = 0
+  eiky = 0
+  eikz = 0
+
+  m = cell_list_q(Nq+1)
+  do while( cell_list_q(m)/=0 )
+    zq(m) = pos(charge(m),4)
+    m = cell_list_q(m)
+  end do
+
+  c1 = 2*pi/Lx
+  c2 = 2*pi/Ly
+  c3 = 2*pi/Lz
+  m = cell_list_q(Nq+1)
+  do while(m /= 0)
+    i = charge(m)
+    eikx(m,0)  = (1,0)
+    eiky(m,0)  = (1,0)
+    eikz(m,0)  = (1,0)
+
+    eikx(m,1)  = cmplx( cos(c1*pos(i,1) ), sin( c1*pos(i,1) ), 8 )
+    eiky(m,1)  = cmplx( cos(c2*pos(i,2) ), sin( c2*pos(i,2) ), 8 )
+    eikz(m,1)  = cmplx( cos(c3*pos(i,3) ), sin( c3*pos(i,3) ), 8 )
+
+    eikx(m,-1) = conjg(eikx(m,1))
+    eiky(m,-1) = conjg(eiky(m,1))
+    m = cell_list_q(m)
+  end do
+
+  do p=2, Kmax1
+    m = cell_list_q(Nq+1)
+    do while(m/=0)
+      eikx(m,p)=eikx(m,p-1)*eikx(m,1)
+      eikx(m,-p)=conjg(eikx(m,p))
+      m = cell_list_q(m)
+    end do
+  end do
+  do q=2, Kmax2
+    m = cell_list_q(Nq+1)
+    do while(m/=0)
+      eiky(m,q)=eiky(m,q-1)*eiky(m,1)
+      eiky(m,-q)=conjg(eiky(m,q))
+      m = cell_list_q(m)
+    end do
+  end do
+  do r=2, Kmax3
+    m = cell_list_q(Nq+1)
+    do while(m/=0)
+      eikz(m,r)=eikz(m,r-1)*eikz(m,1)
+      m = cell_list_q(m)
+    end do
+  end do
+
+  do i = 1, K_total
+    ord = totk_vectk(i,:)
+    m = cell_list_q(Nq+1)
+    do while(m/=0)
+      rho_k(i) = rho_k(i) + &
+                 zq(m) * eikx(m,ord(1)) * eiky(m,ord(2)) * eikz(m,ord(3))
+      m = cell_list_q(m)
+    end do
+  end do
+
+end subroutine build_rho_k
+
+
 
 
 end module compute_energy
