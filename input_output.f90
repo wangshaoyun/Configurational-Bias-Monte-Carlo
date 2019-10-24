@@ -56,13 +56,14 @@ subroutine data_operation
   !
   ! charges on cylinder
   Nqc = nint( Lz * rho_c )
-  qqc = 500 / Nqc
+  qqc = Npc / Nqc * (-qq)/abs(qq)
   !
   ! total charges and particles
-  Nq = Nq_PE * ( abs(qq)+1 ) + Nq_salt_ions * ( abs(qqi) + 1 ) + 500 + Nqc
+  Nq = Nq_PE * ( abs(qq)+1 ) + Nq_salt_ions * ( abs(qqi) + 1 ) + Npc + Nqc
   NN = Npe + Nq - Nq_PE
   !
   !System size
+  Lz = Nml*1.2*R_bond
   Lx = sqrt(Ngl/rho/Lz)
   Ly = Lx
   ratio_xz = Lx / Lz
@@ -89,7 +90,6 @@ subroutine read_data
   open(unit=100, file='system_data.txt')
     read(100,*) restart_or_continue
     read(100,*) rho
-    read(100,*) Lz
     read(100,*) Beta
     read(100,*) Nml
     read(100,*) Ngl
@@ -99,6 +99,8 @@ subroutine read_data
     read(100,*) rho_c
     read(100,*) ion_ratio
     read(100,*) R_bond
+    read(100,*) r_cy
+    read(100,*) Npc
     read(100,*) StepNum0
     read(100,*) StepNum
     read(100,*) DeltaStep
@@ -155,9 +157,9 @@ subroutine allocatte_arrays_and_initialize
   use global_variables
   implicit none
 
-  allocate( pos(NN, 5) )
-  allocate( pos_new(Nml,5) )
-  allocate( pos_old(Nml,5) )
+  allocate( pos(NN, 7)      )
+  allocate( pos_new(Nml,7)  )
+  allocate( pos_old(Nml,7)  )
   allocate( rdf(SizeHist,2) )
 
   rdf = 0

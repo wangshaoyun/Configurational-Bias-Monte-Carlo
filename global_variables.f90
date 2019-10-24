@@ -14,11 +14,14 @@ module global_variables
   integer :: NN       !Total particles in the system
   integer :: Nq       !Total charge in the system
   integer :: Nqc      !charges on cylinder
+  integer :: Npc      !particles on cylinder
   integer :: Npe      !Total monomers in Polyelectrolytes(PE)
   integer :: Nq_PE    !charges on PE
   integer :: Nq_net   !net charges on PE
   integer :: Nq_salt_ions ! salt ions
+  integer :: Nq_ions_net
   integer :: man      !Manning effect, each man particle have one charge
+  real*8  :: r_cy     !radius of cylinder
   real*8  :: rho      !Polymer monomer number density
   real*8  :: rho_c    !line charge density on cylinder 
   real*8  :: qq       !Charge of charged monomers
@@ -42,7 +45,8 @@ module global_variables
   integer :: StepNum              !steps of running
   integer :: DeltaStep            !steps of pH titeration
   integer :: DeltaStep1           !step inteval, physical quantities
-  integer :: DeltaStep2           !step inteval, write data
+  integer :: DeltaStep2           !step histogram
+  integer :: DeltaStep3           !step write data
   integer :: step                 !steps of calculate the physical quantities
   real*8  :: dr                   !length of each moving
   real*8  :: std                  !std of regrow bonds
@@ -73,7 +77,15 @@ module global_variables
  integer :: ib_newconf                        !order of first monomer regrowed
  integer :: num_newconf                         !numbers of monomers regrowed
  integer :: cas                                 !4 cases
+ integer :: base                                !(ic_newconf)*Nml
  integer :: k_try                               !try numbers
+ integer :: ip
+ integer :: ipi
+ real*8  :: pos_ip0(4)
+ real*8  :: pos_ip1(4)
+ real*8  :: pos_ipi0(4)
+ real*8  :: pos_ipi1(4)
+
 !########################end arrays########################!
 
   contains 

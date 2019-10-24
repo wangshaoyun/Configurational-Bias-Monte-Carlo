@@ -8,72 +8,6 @@ module initialize_update
   contains
 
 
-! subroutine Initialize_position
-!   !--------------------------------------!
-!   !Initialize linear chains.
-!   !
-!   !Input
-!   !  pos
-!   !Output
-!   !  pos
-!   !External Variables
-!   !  
-!   !Routine Referenced:
-!   !   rij_and_rr, period_condition_rij
-!   !Reference:
-!   !   Spherical coordinate on Wiki to generate uniform distribution
-!   !   on the sphere surface.
-!   !--------------------------------------!
-!   use global_variables
-!   implicit none
-!   integer :: i, j, k, l, m, n, x, y, p
-!   real*8 :: theta, rnd1, rnd2, rnd3, rsqr
-!   real*8, dimension(3) :: rij
-
-
-!   do i=1, Ngl
-!     l = (i-1)*Nml + 1
-!     x=(i-1)/nint(sqrt(Ngl*1.))+1
-!     y=mod(i-1,nint(sqrt(Ngl*1.)))+1
-!     pos(l,1)=Lx/nint(sqrt(Ngl*1.))*(x-0.5)-Lx/2
-!     pos(l,2)=Ly/nint(sqrt(Ngl*1.))*(y-0.5)-Ly/2
-!     pos(l,3)=Lz/nint(sqrt(Ngl*1.))*0.5-Lz/2
-!     do k=2, Nml
-!       l=l+1
-!       m=1
-!       p=0
-!       do while (m==1)
-!         m=0
-!         call random_number(rnd1)
-!         if (p<10) then
-!           rnd1=rnd1/2
-!         else
-!           rnd1=rnd1**2
-!         end if
-!         call random_number(rnd2)
-!         pos(l,1)=pos(l-1,1)+R_bond*sin(pi*rnd1)*cos(2*pi*rnd2)
-!         pos(l,2)=pos(l-1,2)+R_bond*sin(pi*rnd1)*sin(2*pi*rnd2)
-!         pos(l,3)=pos(l-1,3)+R_bond*cos(pi*rnd1)
-!         !periodic condition
-!         call periodic_condition(pos(l,1:3))
-!         !
-!         !Judge whether the particle is close the former paritcle
-!         !too much.
-!         do n=1,l-1
-!           call rij_and_rr(rij,rsqr,n,l)
-!           if (rsqr<0.81 .or. pos(l,3)<(-Lz/2+1) ) then
-!             m=1
-!             p=p+1
-!             cycle
-!           end if
-!         end do
-!       end do
-!     end do
-!   end do
-
-! end subroutine Initialize_position
-
-
 subroutine Initialize_position
   !------------------------------------!
   !Initialize position
@@ -97,8 +31,8 @@ subroutine Initialize_position
   use global_variables
   implicit none
   integer :: i,j,k,l,m
-  real*8 :: rnd1, rnd2, rnd3, rr
-  real*8, dimension(3) :: rij
+  real*8 :: rnd1, rnd2, rnd3, rr, rr1
+  real*8, dimension(3) :: rij, rnd(3)
 
   pos=0
 
@@ -111,54 +45,168 @@ subroutine Initialize_position
       m = 0
       call random_number(rnd1)
       call random_number(rnd2)
-      call random_number(rnd3)
       pos(k,1) = rnd1*Lx-Lx/2
       pos(k,2) = rnd2*Ly-Ly/2
-      pos(k,3) = rnd3*Lz-Lz/2
+      pos(k,3) = -Lz/2 + 1
       !
       !Jugde whether the particle is close the former paritcle
       !too much.
-      do l = 1, k-1
-        call rij_and_rr(rij,rr,l,k)
-        if (rr<0.8) then
+      do l = 1, i-1
+        call rij_and_rr(rij,rr,(l-1)*Nml+1,k)
+        rr1=pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
           m=1
           cycle
         end if
       end do
     end do
+    if (mod(1,man)==0) then
+      pos(k,4) = qq
+    end if
+    pos(k,5) = 1
+    pos(k,6) = 1
+    pos(k,7) = 1
     !
     !the remaining monomers of that polymer
     do j = 2, Nml
       k = k + 1
-      m = 1
-      do while (m == 1)
-        m = 0
-        call random_number(rnd1)
-        call random_number(rnd2)
-        pos(k,1) = pos(k-1,1) + R_bond*cos(2*pi*rnd2)*sin(pi*rnd1)
-        pos(k,2) = pos(k-1,2) + R_bond*sin(2*pi*rnd2)*sin(pi*rnd1)
-        pos(k,3) = pos(k-1,3) + R_bond*cos(pi*rnd1)
-        !periodic condition
-        call periodic_condition(pos(k,1:3))
-        !
-        !Jugde whether the particle is close the former paritcle
-        !too much.
-        do l = 1, k-1
-          call rij_and_rr(rij,rr,l,k)
-          if (rr<0.81) then
-            m=1
-            cycle
-          end if
-        end do
-      end do
-    end do 
-
+      pos(k,1) = pos(k-1,1)
+      pos(k,2) = pos(k-1,2)
+      pos(k,3) = pos(k-1,3) + R_bond
+      if (mod(j,2)==0) then
+        pos(k,4) = qq
+        pos(k,5) = 1
+      end if
+      pos(k,6) = j
+      pos(k,7) = j
+    end do  
   end do
+
+  !
+  !aions of polymer
+  do i=1, Nq_pe
+    k = k + 1
+    m = 1
+    do while(m==1)
+      m = 0
+      call random_number(rnd)
+      pos(k,1) = rnd(1)*Lx-Lx/2
+      pos(k,2) = rnd(2)*Ly-Ly/2
+      pos(k,3) = rnd(3)*Lz-Lz/2
+      do l = 1, k-1
+        call rij_and_rr(rij,rr,k,l)
+        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
+          m=1
+          cycle
+        end if
+      end do
+    end do
+    pos(k,4) = -qq
+    pos(k,5) = 1
+  end do
+
+  !
+  !salt
+  do i=1,Nq_salt_ions
+    k = k + 1
+    m = 1
+    do while(m==1)
+      m = 0
+      call random_number(rnd)
+      pos(k,1) = rnd(1)*Lx-Lx/2
+      pos(k,2) = rnd(2)*Ly-Ly/2
+      pos(k,3) = rnd(3)*Lz-Lz/2
+      do l = 1, k-1
+        call rij_and_rr(rij,rr,k,l)
+        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
+          m=1
+          cycle
+        end if
+      end do
+    end do
+    pos(k,4) = qqi
+    pos(k,5) = 1
+  end do 
+
+  !
+  !aions of salt
+  do i = 1, Nq_salt_ions*abs(qqi)
+    k = k + 1
+    m = 1
+    do while(m==1)
+      m = 0
+      call random_number(rnd)
+      pos(k,1) = rnd(1)*Lx-Lx/2
+      pos(k,2) = rnd(2)*Ly-Ly/2
+      pos(k,3) = rnd(3)*Lz-Lz/2
+      do l = 1, k-1
+        call rij_and_rr(rij,rr,k,l)
+        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
+          m=1
+          cycle
+        end if
+      end do
+    end do
+    pos(k,4) = - qqi/abs(qqi)
+    pos(k,5) = 1
+  end do 
+
+  !
+  !aions of cylinder
+  do i = 1, Nqc
+    k = k + 1
+    m = 1
+    do while(m==1)
+      m = 0
+      call random_number(rnd)
+      pos(k,1) = rnd(1)*Lx-Lx/2
+      pos(k,2) = rnd(2)*Ly-Ly/2
+      pos(k,3) = rnd(3)*Lz-Lz/2
+      do l = 1, k-1
+        call rij_and_rr(rij,rr,k,l)
+        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
+          m=1
+          cycle
+        end if
+      end do
+    end do
+    pos(k,4) = qq
+    pos(k,5) = 1
+  end do 
+
+  !
+  !cylinder
+  do i = 1, Npc
+    k = k + 1
+    m = 1
+    do while(m==1)
+      m = 0
+      call random_number(rnd)
+      pos(k,1) = rnd(1)*Lx-Lx/2
+      pos(k,2) = rnd(2)*Ly-Ly/2
+      pos(k,3) = rnd(3)*Lz-Lz/2
+      do l = 1, k-1
+        call rij_and_rr(rij,rr,k,l)
+        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
+        if (rr<0.8 .or. rr1<r_cy*r_cy) then
+          m=1
+          cycle
+        end if
+      end do
+    end do
+    pos(k,4) = qqc
+    pos(k,5) = 1
+  end do   
 
 end subroutine Initialize_position
 
 
-subroutine CBMC_Move( EE, DeltaE )
+
+subroutine CBMC_Move( EE, DeltaE, n0 )
   !------------------------------------!
   !
   !   
@@ -176,25 +224,50 @@ subroutine CBMC_Move( EE, DeltaE )
   implicit none
   real*8, intent(inout) :: EE
   real*8, intent(out)   :: DeltaE
-  integer :: m, n
+  integer, intent(inout) :: n0
+  integer :: i, j, k, l, m, n
   real*8 :: EE1, EE2, wo, wn
 
-  n = 0
-  do while ( n <= NN )
+  i = n0
+  do while ( i <= NN )
 
     call choose_chains
 
-    call retrace( wo )
+    call retrace( wo, DeltaE )
 
-    call regrow( wn )
+    call regrow( wn, DeltaE )
 
-    call Move_or_not( wo, wn )
+    call CBMC_Move_or_not( wo, wn, DeltaE, EE )
 
-    n = n + num_newconf
+    j= nint(1.*num_newconf*Nq_salt_net/Npe) 
+
+    do k = 1, j
+
+      if (mod(k+i,Deltastep)==0) then
+
+        call choose_particle_pH
+
+        call Delta_energy_pH(DeltaE)
+
+        call pH_move_or_not(DeltaE,EE)
+
+      end if
+
+      call choose_ions
+
+      call delta_energy_ions_move(DeltaE)
+
+      call ions_move_or_not(DeltaE,EE)
+
+    end do
+
+    i = i + num_newconf + j
 
   end do
 
-end subroutine CBMC_Carlo_Move
+  n0 = mod(i, NN) 
+
+end subroutine CBMC_Move
 
 
 subroutine choose_chains
@@ -204,59 +277,54 @@ subroutine choose_chains
   integer :: i, base
 
   call random_number(rnd)
-  ic_newconf = int(rnd*Ngl) + 1
+  ic_newconf = int(rnd*Ngl) + 1        !chains
 
   call random_number(rnd)
   num_newconf = int(rnd*Nml) + 1       !regrow particles
 
   call random_number(rnd)
-  cas = int(4*rnd) + 1
+  cas = int(4*rnd) + 1                 !case 
 
   base = (ic_newconf-1)*Nml
-  ib_newconf = base + Nml - num_newconf + 1
+  ib_newconf = base + Nml - num_newconf + 1  !starting particle
 
+  !
+  ! retrace from Nml to ib_newconf+1
+  ! regrow from ib_newconf+1 to Nml
   select case ( cas )
 
     case (1) ! Remove from end and add to end
 
       pos_old = pos(base+1:base+Nml,:)
       pos_new = pos_old
-      inv_ord_conf = inv_pos_ord(base+1:base+Nml)
-      ord_conf = pos_ord(base+1:base+Nml)
 
     case (2) ! Remove from end and add to start
 
       pos_old = pos(base+1:base+Nml,:)
-      pos_new(1:Nml-num_newconf,:) = pos(ib_newconf-1:base+1:-1,:)
-      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+Nml:ib_newconf:-1,4:5)
-      inv_ord_conf(1:Nml-num_newconf,:)=inv_pos_ord(ib_newconf-1:base+1:-1) 
-      inv_ord_conf(Nml-num_newconf+1:Nml)=inv_pos_ord(base+Nml:ib_newconf:-1)
+      pos_new(1:Nml-num_newconf,1:6) = pos(ib_newconf-1:base+1:-1,1:6)
+      pos_new(Nml-num_newconf+1:Nml,5:6) = pos(base+Nml:ib_newconf:-1,5:6)
       do i = 1, Nml
-        ord_conf(inv_ord_conf(i)) = i
-      end do 
+        pos_new(pos_new(i,5),7) = i
+      end do
 
     case (3) ! Remove from start and add to end
 
-      pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
-      pos_new(1:Nml-num_newconf,:) = pos(base+num_newconf+1:base+Nml,:)
-      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+1:base+num_newconf,4:5)
-      inv_ord_conf(1:Nml-num_newconf)=inv_pos_ord(base+num_newconf+1:base+Nml) 
-      inv_ord_conf(Nml-num_newconf+1:Nml)=inv_pos_ord(base+1:base+num_newconf)
+      pos_old = pos(base+Nml:base+1:-1,:)
+      pos_new(1:Nml-num_newconf,1:6) = pos(base+num_newconf+1:base+Nml,1:6)
+      pos_new(Nml-num_newconf+1:Nml,5:6) = pos(base+1:base+num_newconf,5:6)
       do i = 1, Nml
-        ord_conf(inv_ord_conf(i)) = i
-      end do 
+        pos_old(pos_old(i,5),7) = i
+        pos_new(pos_new(i,5),7) = i
+      end do
 
     case (4) ! Remove from start and add to start
 
-      pos_old(1:Nml,:) = pos(base+Nml:base+1:-1,:)
-      pos_new(1:Nml-num_newconf,:) = pos(base+Nml:base+num_newconf+1:-1,:)
-      pos_new(Nml-num_newconf+1:Nml,4:5) = pos(base+num_newconf:base+1:-1,4:5)
-      inv_ord_conf(1:Nml-num_newconf)=&
-            inv_pos_ord(base+Nml:base+num_newconf+1:-1) 
-      inv_ord_conf(Nml-num_newconf+1:Nml)=&
-            inv_pos_ord(base+num_newconf:base+1:-1)
+      pos_old = pos(base+Nml:base+1:-1,:)
+      pos_new(1:Nml-num_newconf,1:6) = pos(base+Nml:base+num_newconf+1:-1,1:6)
+      pos_new(Nml-num_newconf+1:Nml,5:6) = pos(base+num_newconf:base+1:-1,5:6)
       do i = 1, Nml
-        ord_conf(inv_ord_conf(i)) = i
+        pos_old(pos_old(i,5),7) = i
+        pos_new(pos_new(i,5),7) = i
       end do 
 
   end select
@@ -264,7 +332,77 @@ subroutine choose_chains
 end subroutine choose_chains
 
 
-subroutine retrace( w )
+subroutine choose_ions
+  use global_variables
+  implicit none
+  real*8 :: rnd
+  real*8 :: rnd1(3)
+
+  call random_number(rnd)
+  ip = int(rnd*(NN-Npe))+1+Npe
+  do while(pos(ip,4)==0) 
+    call random_number(rnd)
+    ip = int(rnd*(NN-Npe))+1+Npe
+  end do    
+
+  pos_ip0=pos(ip,1:4)
+  call random_number(rnd1)
+  pos_ip1(1:3)=pos_ip0+rnd1*dr
+  call periodic_condition(pos_ip1(1:3))
+
+end subroutine choose_ions
+
+
+subroutine choose_particle_pH
+  use global_variables
+  implicit none
+  real*8 :: rnd
+  real*8 :: rnd1(3)
+
+  call random_number(rnd)
+  ip = int(rnd*Npe)+1
+  do while(pos(ip,5)==0)
+    call random_number(rnd)
+    ip = int(rnd*Npe)+1
+  end do
+
+  call random_number(rnd)
+  ip1=Npe+int(rnd*Nq_pe)+1
+  if (pos(ip,4)/=0)
+    do while(pos(ip1,4)==0) then
+      call random_number(rnd)
+      ip1=Npe+int(rnd*Nq_pe)+1
+    end do
+  else
+    do while(pos(ip1,4)/=0) then
+      call random_number(rnd)
+      ip1=Npe+int(rnd*Nq_pe)+1
+    end do
+  end if
+
+  pos_ip0=pos(ip,1:4)
+  pos_ip1=pos_ip0
+  pos_ipi0=pos(ip1,1:4)
+  if (pos_ip0(4)/=0) then
+    pos_ip1(4)=0
+    call random_number(rnd1)
+    pos_ipi1(1)=rnd(1)*Lx-Lx/2
+    pos_ipi1(2)=rnd(2)*Ly-Ly/2
+    pos_ipi1(3)=rnd(3)*Lz-Lz/2
+    pos_ipi1(4)=0
+  else
+    pos_ip1(4)=qq
+    call random_number(rnd1)
+    pos_ipi1(1)=rnd(1)*Lx-Lx/2
+    pos_ipi1(2)=rnd(2)*Ly-Ly/2
+    pos_ipi1(3)=rnd(3)*Lz-Lz/2
+    pos_ipi1(4)=-qq
+  end if
+
+end subroutine choose_particle_pH
+
+
+subroutine retrace( w, DeltaE )
   !------------------------------------!
   !   
   !   
@@ -281,39 +419,34 @@ subroutine retrace( w )
   use compute_energy
   implicit none
   real*8, intent(out) :: w
-  integer :: i, j, k, l, n
-  real*8 :: rnd1, rnd2, ip, ib, ic, sumw, rnd(3)
-  real*8 :: eni, xt(k_try,3), xn(Nml,3)
-
-  ib = num_newconf
-  ic = ic_newconf
-
-
-  do i = 1, Nml
-    j = ic*Nml - ib + i
-    xn(i,:) =  pos(j,:)
-  end do
+  real*8, intent(out) :: DeltaE
+  integer :: i, j, n
+  real*8 :: eni, xt(3), wt, sumw
 
   w = 1
-  do i = 1, ib
-    ip = ic_newconf*Nml - i + 1
-    call retrace_list(ip)
-    if ( i == Nml ) then
-      xn(1,:) = pos(ic*Nml-ib+1,:)
-      xt(1,:) = xn(1,:)
-      call enerex(ic, ib, xt(1,:), ib-i+1, eni)
+  DeltaE = 0
+  do i = 1, num_newconf
+    n = Nml - num_newconf + i
+    call retrace_list(pos_old(n,7)+base,pos_old(n,1:4))
+    if ( i == Nml ) then           ! When retrace only 1 monomer
+      xt(:) = pos_old(1,1:4)
+      call enerex_short(xt(:), eni)
       w = k_try*exp(-Beta*eni)
+      DeltaE = DeltaE - eni
     else
       sumw = 0
-      do j = 1, k
+      do j = 1, k_try
         if ( j==1 ) then
-          xt(1) = pos(ic*Nml-i+1,:)
+          xt(1,:) = pos_old(n,1:3)
         else
-          call next_ci(ib, xt(j,:), xn, ib-i+1)
+          call next_ci(n, xt(j,:))
         end if
-        call enerex(ic, ib, xt(j,:), ib-i+1, eni)
+        call enerex_short(xt(j,:), eni)
         wt(j) = exp( -Beta * eni )
         sumw = sumw + wt(j)
+        if (j==1) then
+          DeltaE = DeltaE - eni
+        end if
       end do
       w = w * sumw
     end if
@@ -322,7 +455,7 @@ subroutine retrace( w )
 end subroutine retrace
 
 
-subroutine regrow( w )
+subroutine regrow( w , DeltaE )
   !------------------------------------!
   !   
   !   
@@ -339,54 +472,48 @@ subroutine regrow( w )
   use compute_energy
   implicit none
   real*8, intent(out) :: w
-  integer :: i, j, k, l, n
-  real*8 :: rnd1, rnd2, ip, ib, ic, sumw, rnd(3)
-  real*8 :: eni, xt(k_try,3), xn(Nml,3)
-
-  call random_number(rnd1)
-  call random_number(rnd2)
-  ic = int( rnd1 * Ngl ) + 1
-  ib = int( rnd2 * Nml ) + 1
-  ic_newconf = ic
-  ib_newconf = ib
-  deallocate( pos_new )
-  allocate( pos_new(ib_newconf, 3) )
-
-  do i = 1, ib - 1
-    j = ic*Nml - ib + i
-    xn(i,:) =  pos(j,:)
-  end do
+  real*8, intent(out) :: DeltaE
+  integer :: i, j, m, n
+  real*8  :: eni(k_try), xt(k_try,3), wt(k_try), sumw
+  real*8  :: rnd(3)
 
   w = 1
-  do i = 1, ib
-    if ( ib == Nml .and. i == 1 ) then 
+  DeltaE = 0
+  do i = 1, num_newconf
+    n = Nml - num_newconf + i 
+    if ( num_newconf == Nml .and. i == 1 ) then 
       call random_number(rnd)
-      xn(1, 1) = rnd(1) * Lx
-      xn(1, 2) = rnd(2) * Ly
-      xn(1, 3) = rnd(3) * Lz
-      xt(1, :) = xn(1, :)
-      call enerex(ic, ib, xt(1,:), i, eni)
+      xt(1,1) = rnd(1) * Lx
+      xt(1,2) = rnd(2) * Ly
+      xt(1,3) = rnd(3) * Lz
+      do while(xt(1,1)*xt(1,1)+xt(1,2)*xt(1,2)<r_cy) then
+        xt(1,1) = rnd(1) * Lx
+        xt(1,2) = rnd(2) * Ly
+        xt(1,3) = rnd(3) * Lz
+      end do
+      call enerex_short(xt(1,:), eni(1))
       w = k_try*exp(-Beta*eni)
+      DeltaE = DeltaE + eni
     else
       sumw = 0
-      do j = 1, k
-        call next_ci(ib, xt(j,:), xn, i)
-        call enerex(ic, ib, xt(j,:), i, eni)
+      do j = 1, k_try
+        call next_ci(n, xt(j,:))
+        call enerex_short(xt(j,:), eni(j))
         wt(j) = exp( -Beta * eni )
         sumw = sumw + wt(j)
       end do
       w = w * sumw
-      call select( wt, sumw, n )
-      xn(i, :) = xt(n, :)
+      call select_move( wt, sumw, m )
+      pos_new(n, :) = xt(m, :)
+      DeltaE = DeltaE + eni(n)
     end if
-    call regrow_list(ip)
+    call regrow_list(pos_old(n,7)+base,pos_new(n,1:4))
   end do
-  pos_new = xn( Nml-ib+1:Nml, : )
 
 end subroutine regrow
 
 
-subroutine next_ci( ib, xt, xn, i )
+subroutine next_ci( n, xt )
   !------------------------------------!
   !
   !   
@@ -401,64 +528,59 @@ subroutine next_ci( ib, xt, xn, i )
   !------------------------------------!
   use global_variables
   implicit none
-  integer, intent(in) :: ib
-  integer, intent(in) :: i
-  real*8, dimension(3),    intent(out) :: xt
-  real*8, dimension(Nml,3), intent(in) :: xn
+  integer, intent(in) :: n
+  real*8, dimension(3), intent(out) :: xt
   integer :: j
 
-  j = Nml - ib + i
-  if ( j == 2 ) then
-    call next_c2(xn, xt)
-  elseif( j == 3 ) then
-    call next_c3(xn, xt, j)
+  if ( n == 2 ) then
+    call next_c2(n, xt)
+  elseif( n == 3 ) then
+    call next_c3(n, xt)
   else
-    call next_cn(xn, xt, j)
+    call next_cn(n, xt)
   end if
 
 end subroutine next_ci
 
 
-subroutine next_c2(xn, xt)
+subroutine next_c2(n, xt)
   use global_variables
   implicit none 
-  real*8, dimension(Nml,3), intent(in) :: xn
+  integer, intent(in) :: n
   real*8, dimension(3), intent(out) :: xt
   real*8 :: l, b(3)
 
   call bond_l(l) 
   call ran_or(b)
-  xt = xn(1,:) + l*b
+  xt = pos(base+1,1:3) + l*b
 
 end subroutine next_c2
 
 
-subroutine next_c3(xn, xt)
+subroutine next_c3(n, xt)
   use global_variables
   implicit none
-  real*8, dimension(Nml,3), intent(in) :: xn
+  integer, intent(in) :: n
   real*8, dimension(3), intent(out) :: xt
-  integer, intent(in) :: j
   real*8 :: l, b(3)
 
   call bandl(l)
-  call bond_a(xn, b, j)
-  xt = xn(2,:) + l*b  
+  call bond_a(n,b)
+  xt = pos(base+2,:) + l*b  
 
 end subroutine next_c3  
 
 
-subroutine next_cn(xn, xt, j)
+subroutine next_cn(n, xt)
   use global_variables
   implicit none
-  real*8, dimension(Nml,3), intent(in) :: xn
+  real*8,intent(in) :: n
   real*8, dimension(3), intent(out) :: xt
-  integer, intent(in) :: j
   real*8 :: l, b(3)
 
   call bondl(l)
-  call tors_bonda(xn, b, j)
-  xt = xn(j-1) + l*b
+  call tors_bonda(n,b)
+  xt = pos(base+n-1,1:3) + l*b
 
 end subroutine next_cn
 
@@ -470,21 +592,23 @@ subroutine bondl(l)
   real*8 :: sigma, l0, R0, kFENE, Kvib, a, rnd, Us
   logical :: FENE, ready
 
-  FENE = .false.
+  FENE = .true.
   ready = .false.
   if (FENE) then
     R0 = 1.5
+    R0_2 = R0*R0
     kFENE = 30
     do while ( .not. ready )
       call random_number(rnd)
       l = rnd * R0
-      Us = - 0.5 * R0 * R0 * log( 1 - l**2 / R0**2 )
+      Us = - 0.5 * R0_2 * log( 1 - l*l / R0_2 )
       call random_number(rnd)
       if ( rnd < exp(-beta*Us) ) then
         ready = .true.
       end if
     end do
   else
+    kvib = 400
     sigma = sqrt(1/(beta*Kvib))
     l0 = 1
     a = ( l0 + 3*simga )**2
@@ -522,20 +646,21 @@ subroutine ran_or(b)
 end subroutine ran_or
 
 
-subroutine bond_a(xn, b, j)
+subroutine bond_a(n, b)
   use global_variables
   implicit none
   real*8, dimension(Nml,3), intent(in) :: xn
   real*8, dimension(3), intent(out) :: b
-  integer, intent(in) :: j
   logical :: ready
   real*8  :: dx1x2(3), b(3), rnd, ubb
   real*8  :: k_phi, phi0, phi, rr
 
+  k_phi = 30
+  phi0 = 0
   ready = .false.
   do while ( .not. ready )
     call ran_or(b)
-    dx1x2 = xn(j-1,:) - xn(j-2,:)
+    dx1x2 = pos(base+n-1,:) - pos(base+n-2,:)
     rr = sqrt( dot_product(dx1x2, dx1x2) )
     dx1x2 = dx1x2 / rr
     phi = acos( dot_product(dx1x2, b) )
@@ -549,12 +674,11 @@ subroutine bond_a(xn, b, j)
 end subroutine bond_a
 
 
-subroutine tors_bonda(xn, b, j)
+subroutine tors_bonda(n, b)
   use global_variables
   implicit none
-  real*8, dimension(Nml,3), intent(in) :: xn
+  real*8, intent(in) :: n
   real*8, dimension(3), intent(out) :: b
-  integer :: j
   logical :: ready
   real*8 :: dx1x2(3), dx2x3(3), xx1(3), xx2(3), r12, r23
   real*8 :: phi, phi0, k_phi, theta, theta0, k_theta
@@ -564,11 +688,11 @@ subroutine tors_bonda(xn, b, j)
   do while( .not. ready )
     call ran_or(b)
 
-    dx1x2 = xn(i-1,:) - xn(i-2,:)
+    dx1x2 = pos(base+n-1,:) - pos(base+n-2,:)
     r12 = sqrt( dot_product(dx1x2, dx1x2) )
     dx1x2 = dx1x2 / r12
 
-    dx2x3 = xn(i-2,:) - xn(i-3,:)
+    dx2x3 = pos(base+n-2,:) - pos(base+n-3,:)
     r23 = sqrt( dot_product(dx2x3, dx2x3) )
     dx2x3 = dx2x3 / r23
 
@@ -590,7 +714,27 @@ subroutine tors_bonda(xn, b, j)
 end subroutine tors_bonda
 
 
-subroutine Move_or_not(wo, wn)
+subroutine select_move(wt, sumw, n)
+  use global_variables
+  implicit none
+  real*8, dimension(k_try), intent(in) :: wt
+  real*8, intent(in) :: sumw
+  integer, intent(out) :: n
+  real*8 :: rnd, ws, cumw
+
+  call random_number(rnd)
+  ws = rnd * sumw
+  cumw = wt(1)
+  n = 1
+  do while ( cumw < ws )
+    n = n + 1
+    cumw = cumw + wt(n)
+  end do
+
+end subroutine select_move
+
+
+subroutine CBMC_Move_or_not(wo, wn, EE, DeltaE)
   !--------------------------------------!
   !
   !   
@@ -607,23 +751,77 @@ subroutine Move_or_not(wo, wn)
   !--------------------------------------!
   use global_variables
   implicit none
-  real*8,  intent(in) :: wo
-  real*8,  intent(in) :: wn
-  integer, intent(in) :: m
-  real*8 :: rnd
+  real*8, intent(in) :: wo
+  real*8, intent(in) :: wn
+  real*8, intent(inout) :: EE
+  real*8, intent(in) :: DeltaE
+  real*8 :: rnd, Del_E
   integer :: i, j
+  !
+  !Long range energy difference
+  call energy_long(Del_E)
   !
   !Judge whether move or not
   call random_number( rnd )
   if (rnd < (wn/wo) ) then
     pos((ic_newconf-1)*Nml+1:ic_newconf*Nml,:) = pos_new(:,:)
     accpt_num = accpt_num + num_newconf
-!     call grow_list(.true.)
+    EE = EE + De
+    call grow_list(.true.)
   else
     call grow_list(.false.)
   end if
   total_num = total_num + num_newconf
-end subroutine Move_or_not
+
+end subroutine CBMC_Move_or_not
+
+
+subroutine ions_move_or_not(De,EE)
+  use global_variables
+  implicit none
+  real*8, intent(in) :: De
+  real*8, intent(inout) :: EE
+  real*8 :: rnd
+
+  if (De<0) then
+    pos(ip,1:4) = pos_ip1
+    call update_cell_list
+    EE = EE + De
+  else
+    call random_number(rnd)
+    if (rnd<exp(-De*beta)) then
+      pos(ip,1:4) = pos_ip1
+      call update_cell_list
+      EE = EE + De
+    end if
+  end if
+ 
+end subroutine ions_move_or_not
+
+
+subroutine pH_move_or_not(De)
+  use global_variables
+  implicit none
+  real*8, intent(in) :: De
+  real*8, intent(inout) :: EE
+  real*8 :: rnd
+
+  if (De<0) then
+    pos(ip,1:4) = pos_ip1
+    pos(ip1,1:4) = pos_ipi1
+    call update_cell_list
+    EE = EE + De
+  else
+    call random_number(rnd)
+    if (rnd<exp(-De*beta)) then
+      pos(ip,1:4) = pos_ip1
+      pos(ip1,1:4) = pos_ipi1
+      call update_cell_list
+      EE = EE + De
+    end if
+  end if
+
+end subroutine pH_move_or_not
 
 
 subroutine grow_list(new_conf)
@@ -642,36 +840,38 @@ subroutine grow_list(new_conf)
 end subroutine grow_list
 
 
-subroutine retrace_list(ip)
+subroutine retrace_list(np, rr)
   use global_variables
   use compute_energy
   implicit none
-  integer :: ip
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
 
-  call delete_rho_k_CBMC(ip)
+  if (rr(4)/=0) then
 
-  call delete_cell_list_r1_CBMC(ip)
+    call delete_cell_list_real_CBMC(np,rr)
 
-  call delete_cell_list_r2_CBMC(ip)
+  end if
 
-  call delete_cell_list_lj_CBMC(ip)
+  call delete_cell_list_lj_CBMC(np,rr)
 
 end subroutine retrace_list
 
 
-subroutine regrow_list(ip)
+subroutine regrow_list(np, rr)
   use global_variables
   use compute_energy
   implicit none
-  integer :: ip
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
 
-  call delete_rho_k_CBMC(ip)
+  if (pos(np,4)/=0) then
 
-  call delete_cell_list_r1_CBMC(ip)
+    call add_cell_list_real_CBMC(np,rr)
 
-  call delete_cell_list_r2_CBMC(ip)
+  end if
 
-  call delete_cell_list_lj_CBMC(ip)
+  call add_cell_list_lj_CBMC(np,rr)
 
 end subroutine regrow_list
 

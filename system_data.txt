@@ -1,6 +1,5 @@
 0               ! restart_or_continue
-4D-1            ! rho
-200             ! Lz
+4D-1            ! rho polymer chains concentration
 0.5263D0        ! Beta:     1/kT, T=298K
 15              ! Nml
 50              ! Ngl
@@ -10,9 +9,13 @@
 0.1             ! rho_c
 1               ! ion_ratio
 1               ! R_bond
+2               ! r_cy
+500             ! Npc
 20              ! DeltaStep
 20000           ! StepNum0
 50000           ! StepNum:  steps of running
 200             ! DeltaStep1: compute physical quantities.
 200             ! DeltaStep2: output.
-
+0.1             ! dr
+0.5             ! best accept ratio
+5e-3            ! delta_dr

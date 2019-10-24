@@ -19,19 +19,8 @@ module compute_energy
   real*8,  private :: alpha2      !alpha2=alpha*alpha
   real*8,  private :: tol
   !
-  !real space, cut off at small radius
-  real*8,  private :: rcc0         !Cut off radius of real space
-  real*8,  private :: rcc02        !rcc2=rcc*rcc  !
-  real*8,  private :: clx0         !length of cell in x direction
-  real*8,  private :: cly0         !length of cell in y direction
-  real*8,  private :: clz0         !length of cell in z direction
-  integer, private :: nclx0        !number of cell in x direction
-  integer, private :: ncly0        !number of cell in y direction
-  integer, private :: nclz0        !number of cell in z direction 
-  !
   !real space, cut off at large radius
-  real*8,  private :: rcc1         !Cut off radius of real space
-  real*8,  private :: rcc12        !rcc2=rcc*rcc  !
+  real*8,  private :: rcc         !Cut off radius of real space
   real*8,  private :: clx1         !length of cell in x direction
   real*8,  private :: cly1         !length of cell in y direction
   real*8,  private :: clz1         !length of cell in z direction
@@ -88,40 +77,22 @@ module compute_energy
   integer, allocatable, dimension(:,:,:), private :: inv_hoc_lj
   !
   !neighbor cells of the center cell
-  integer, allocatable, dimension(:,:,:), private :: cell_near_list_r0
+  integer, allocatable, dimension(:,:,:), private :: cell_near_list_r
   !
   !cell list in real space
-  integer, allocatable, dimension( : ), private :: cell_list_r0
+  integer, allocatable, dimension( : ), private :: cell_list_r
   !
   !inverse cell list in real space
-  integer, allocatable, dimension( : ), private :: inv_cell_list_r0
+  integer, allocatable, dimension( : ), private :: inv_cell_list_r
   !
   ! head of chains, cell list
-  integer, allocatable, dimension(:,:,:), private :: hoc_r0     
+  integer, allocatable, dimension(:,:,:), private :: hoc_r
   !
   ! head of chains, inverse cell list
-  integer, allocatable, dimension(:,:,:), private :: inv_hoc_r0
-  !
-  !neighbor cells of the center cell
-  integer, allocatable, dimension(:,:,:), private :: cell_near_list_r1
-  !
-  !cell list in real space
-  integer, allocatable, dimension( : ), private :: cell_list_r1
-  !
-  !inverse cell list in real space
-  integer, allocatable, dimension( : ), private :: inv_cell_list_r1
-  !
-  ! head of chains, cell list
-  integer, allocatable, dimension(:,:,:), private :: hoc_r1     
-  !
-  ! head of chains, inverse cell list
-  integer, allocatable, dimension(:,:,:), private :: inv_hoc_r1
+  integer, allocatable, dimension(:,:,:), private :: inv_hoc_r
   !
   !Coulomb energy of i,j in real space
-  real,  allocatable, dimension(:), private :: real_ij0
-  !
-  !Coulomb energy of i,j in real space
-  real,  allocatable, dimension(:), private :: real_ij1
+  real,  allocatable, dimension(:), private :: real_ij
   !
   !coefficients in Fourier space
   real*8,  allocatable, dimension( : ), private :: exp_ksqr
@@ -238,18 +209,159 @@ subroutine total_energy (EE)
 end subroutine total_energy
 
 
-subroutine enerex(ic, ib, xt, i, eni)
+subroutine enerex_short(xt, eni)
   use global_variables
   implicit none
-  integer, intent(in) :: ic
-  integer, intent(in) :: ib
-  integer, intent(in) :: i
   real*8, intent(out) :: eni
-  real*8, dimension(3), intent(in) :: xt
+  real*8, dimension(4), intent(in) :: xt
+  integer :: icelx, icely, icelz, ncel
+  integer :: i, j, k
+  real*8 :: rij(3), rr, EE1, EE2
+  real*8 :: inv_rr2, inv_rr6, inv_rr12
 
-  
+  EE1 = 0
+  if (xt(4)/=0) then
+    icelx = int(rr(1)/clx1) + 1
+    icely = int(rr(2)/cly1) + 1
+    icelz = int(rr(3)/clz1) + 1
+    ncel = (icelx-1)*ncly1*nclz1+(icely-1)*nclz1+icelz
+    do i = cell_near_list_r(ncel,28,1)
+      icelx = cell_near_list_r(ncel,i,1)
+      icely = cell_near_list_r(ncel,i,2)
+      icelz = cell_near_list_r(ncel,i,3)
+      j = hoc_r(icelx,icely,icelz) 
+      do while (j/=0) 
+        rij = xt(1:3) - pos(k,1:3)
+        call periodic_condition(rij)
+        rr = sqrt(rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3))
+        if (rr<rcc) then
+          EE1=EE1+pos(j,4)*erfc(alpha * rr) / rr
+        end if
+        j = cell_list_r(j)
+      end do
+    end do
+    EE1 = EE1 * xt(4)
+  end if
 
-end subroutine enerex
+  EE2 = 0
+  icelx = int(rr(1)/clx1) + 1
+  icely = int(rr(2)/cly1) + 1
+  icelz = int(rr(3)/clz1) + 1  
+  ncel = (icelx-1)*ncly1*nclz1+(icely-1)*nclz1+icelz
+  do i = cell_near_list_lj(ncel,28,1)
+    icelx = cell_near_list_lj(ncel,i,1)
+    icely = cell_near_list_lj(ncel,i,2)
+    icelz = cell_near_list_lj(ncel,i,3)
+    j = hoc_lj(icelx,icely,icelz) 
+    do while (j/=0) 
+      rij = xt(1:3) - pos(k,1:3)
+      call periodic_condition(rij)
+      rr = rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3)
+      if ( rr < rc_lj2 ) then
+        inv_rr2  = sigma2 / rr
+        inv_rr6  = inv_rr2 * inv_rr2 * inv_rr2
+        inv_rr12 = inv_rr6 * inv_rr6
+        EE2      = EE2 + inv_rr12 - inv_rr6 + 0.25D0
+      end if
+      j = cell_list_r(j)
+    end do
+  end do
+  EE2 = EE2 * 4 * epsilon * EE2
+
+  eni = EE1 + EE2
+
+  rr = xt(1)*xt(1) + xt(2)*xt(2)
+  if (rr<r_cy) then
+    eni = eni + 1e10
+  end if
+
+end subroutine enerex_short
+
+
+subroutine energy_long(del_E)
+  use global_variables
+  implicit none
+  real*8, intent(out) :: del_E
+  real*8  :: Del_Recip_erg
+  complex(kind=8) :: eikx0(num_newconf, -Kmax1:Kmax1 )
+  complex(kind=8) :: eikx1(num_newconf, -Kmax1:Kmax1 )
+  complex(kind=8) :: eiky0(num_newconf, -Kmax2:Kmax2 )
+  complex(kind=8) :: eiky1(num_newconf, -Kmax2:Kmax2 )
+  complex(kind=8) :: eikz0(num_newconf, -Kmax3:Kmax3 )
+  complex(kind=8) :: eikz1(num_newconf, -Kmax3:Kmax3 )
+  complex(kind=8) :: eikr0, eikr1
+  real*8  :: c1, c2, c3
+  integer :: ord(3), i, m, p, q, r
+
+  c1 = 2*pi/Lx
+  c2 = 2*pi/Ly
+  c3 = 2*pi/Lz/Z_empty
+
+  do i = 1, num_newconf
+
+    m = Nml - num_newconf + i 
+
+    eikx0(i,0)  = (1,0)
+    eiky0(i,0)  = (1,0)
+    eikz0(i,0)  = (1,0)
+
+    eikx0(i,1)  = cmplx( cos(c1*pos_old(m,1)), sin(c1*pos_old(m,1)), 8 )
+    eiky0(i,1)  = cmplx( cos(c2*pos_old(m,2)), sin(c2*pos_old(m,2)), 8 )
+    eikz0(i,1)  = cmplx( cos(c3*pos_old(m,3)), sin(c3*pos_old(m,3)), 8 )
+
+    eikx0(i,-1) = conjg(eikx0(i,1))
+    eiky0(i,-1) = conjg(eiky0(i,1))
+    eikz0(i,-1) = conjg(eikz0(i,1))
+
+    eikx1(i,0)  = (1,0)
+    eiky1(i,0)  = (1,0)
+    eikz1(i,0)  = (1,0)
+
+    eikx1(i,1)  = cmplx( cos(c1*pos_new(m,1)), sin(c1*pos_new(m,1)), 8 )
+    eiky1(i,1)  = cmplx( cos(c2*pos_new(m,2)), sin(c2*pos_new(m,2)), 8 )
+    eikz1(i,1)  = cmplx( cos(c3*pos_new(m,3)), sin(c3*pos_new(m,3)), 8 )
+
+    eikx1(i,-1) = conjg(eikx1(i,1))
+    eiky1(i,-1) = conjg(eiky1(i,1))
+    eikz1(i,-1) = conjg(eikz1(i,1))
+
+  end do    
+
+  do p=2, Kmax1
+    do m=1, num_newconf
+      eikx0(m,p)=eikx0(m,p-1)*eikx0(m,1)
+      eikx0(m,-p)=conjg(eikx0(m,p))
+      eikx1(m,p)=eikx1(m,p-1)*eikx1(m,1)
+      eikx1(m,-p)=conjg(eikx1(m,p))
+    end do
+  end do
+  do q=2, Kmax2
+    do m=1, num_newconf
+      eiky0(m,q)=eiky0(m,q-1)*eiky0(m,1)
+      eiky0(m,-q)=conjg(eiky0(m,q))
+      eiky1(m,q)=eiky1(m,q-1)*eiky1(m,1)
+      eiky1(m,-q)=conjg(eiky1(m,q))
+    end do
+  end do
+  do r=2, Kmax3
+    do m=1, num_newconf
+      eikz0(m,r)=eikz0(m,r-1)*eikz0(m,1)
+      eikz0(m,r)=conjg(eikz0(m,q))
+      eikz1(m,r)=eikz1(m,r-1)*eikz1(m,1)
+      eikz1(m,r)=conjg(eikz1(m,q))
+    end do
+  end do
+
+  do i = 1, K_total
+    ord = totk_vectk(i,:)
+    do m = 1, num_newconf
+      rho_k(i) = rho_k(i) + &
+                 zq(m) * eikx(m,ord(1)) * eiky(m,ord(2)) * eikz(m,ord(3))
+    end do
+  end do
+
+end subroutine energy_long
+
 
 
 subroutine LJ_energy (EE)
@@ -787,6 +899,117 @@ subroutine build_rho_k
   end do
 
 end subroutine build_rho_k
+
+
+subroutine delete_cell_list_real(np,rr)
+  use global_variables
+  implicit none
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
+  integer :: icelx,icely,icelz
+  integer :: nti,bfi  
+
+  icelx = int(rr(1)/clx)+1
+  icely = int(rr(2)/cly)+1
+  icelz = int(rr(3)/clz)+1     
+
+  bfi = cell_list_r(np)
+  nti = inv_cell_list_r(np)
+
+  if ( bfi/=0 .and. nti/=0 ) then        !middle
+    cell_list_r(nti) = bfi
+    inv_cell_list_r(bfi) = nti
+  elseif ( bfi==0 .and. nti/=0 ) then    !the first one
+    cell_list_r(nti) = bfi
+    inv_hoc_r(icelx,icely,icelz) = nti
+  elseif ( bfi/=0 .and. nti==0 ) then    !the last one
+    hoc_r(icelx,icely,icelz) = bfi
+    inv_cell_list_r(bfi) = nti
+  else                                   !only one
+    hoc_r(icelx,icely,icelz) = nti
+    inv_hoc_r(icelx,icely,icelz) = bfi
+  end if
+
+end subroutine delete_cell_list_real
+
+
+subroutine add_cell_list_r(np,rr)
+  use global_variables
+  implicit none
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
+  integer :: icelx,icely,icelz
+
+  icelx = int(rr(1)/clx)+1
+  icely = int(rr(2)/cly)+1
+  icelz = int(rr(3)/clz)+1 
+
+  inv_cell_list_r(np) = 0
+  if ( inv_hoc_r(icelx,icely,icelz) /=0 ) then
+    inv_cell_list_r( hoc_r(icelx,icely,icelz) ) = np
+  else
+    inv_hoc_r(icelx,icely,icelz) = np
+  end if
+
+  cell_list_r(ii) = hoc_r(icelx,icely,icelz)
+  hoc_r(icelx,icely,icelz) = np
+
+end subroutine add_cell_list_r
+
+
+subroutine delete_cell_list_lj(np,rr)
+  use global_variables
+  implicit none
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
+  integer :: icelx,icely,icelz
+
+  icelx = int(rr(1)/clx)+1
+  icely = int(rr(2)/cly)+1
+  icelz = int(rr(3)/clz)+1 
+
+  bfi = cell_list_lj(np)
+  nti = inv_cell_list_lj(np)
+
+  if ( bfi/=0 .and. nti/=0 ) then        !middle
+    cell_list_lj(nti) = bfi
+    inv_cell_list_lj(bfi) = nti
+  elseif ( bfi==0 .and. nti/=0 ) then    !the first one
+    cell_list_lj(nti) = bfi
+    inv_hoc_lj(icelx,icely,icelz) = nti
+  elseif ( bfi/=0 .and. nti==0 ) then    !the last one
+    hoc_lj(icelx,icely,icelz) = bfi
+    inv_cell_list_lj(bfi) = nti
+  else                                   !only one
+    hoc_lj(icelx,icely,icelz) = nti
+    inv_hoc_lj(icelx,icely,icelz) = bfi
+  end if
+
+end subroutine delete_cell_list_lj
+
+
+subroutine add_cell_list_lj(np,rr)
+  use global_variables
+  implicit none
+  integer, intent(in) :: np
+  real*8, dimension(4), intent(in) :: rr
+  integer :: icelx,icely,icelz
+
+  icelx = int(rr(1)/clx)+1
+  icely = int(rr(2)/cly)+1
+  icelz = int(rr(3)/clz)+1 
+
+  inv_cell_list_lj(np) = 0
+  if ( inv_hoc_lj(icelx,icely,icelz) /=0 ) then
+    inv_cell_list_lj( hoc_r(icelx,icely,icelz) ) = np
+  else
+    inv_hoc_r(icelx,icely,icelz) = np
+  end if
+
+  cell_list_r(ii) = hoc_r(icelx,icely,icelz)
+  hoc_r(icelx,icely,icelz) = np
+
+end subroutine add_cell_list_lj
 
 
 

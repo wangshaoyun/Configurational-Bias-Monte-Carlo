@@ -55,7 +55,7 @@ implicit none
 !##############Preheation#############!
   if ( i <= StepNum0 ) then
     do step = i, StepNum0
-      call CBMC_Move( EE, DeltaE )
+      call CBMC_Move( EE, DeltaE, k )
       if ( mod(step,DeltaStep1) == 0 ) then
         call compute_physical_quantities
         call total_energy(EE1)
@@ -72,7 +72,7 @@ implicit none
   call total_energy(EE)
 !###############Running###############!
   do step=i, StepNum+StepNum0
-    call CBMC_Move( EE, DeltaE )
+    call CBMC_Move( EE, DeltaE, k )
     if ( mod(step,DeltaStep1) == 0 ) then 
       call compute_physical_quantities
       call total_energy(EE1)
