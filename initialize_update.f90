@@ -31,7 +31,7 @@ subroutine Initialize_position
   use global_variables
   implicit none
   integer :: i,j,k,l,m
-  real*8 :: rnd1, rnd2, rnd3, rr, rr1
+  real*8 :: rnd1, rnd2, rnd3, rr, rr1, dz, dtheta
   real*8, dimension(3) :: rij, rnd(3)
 
   pos=0
@@ -180,31 +180,64 @@ subroutine Initialize_position
 
   !
   !cylinder
-  do i = 1, Npc
-    k = k + 1
-    m = 1
-    do while(m==1)
-      m = 0
-      call random_number(rnd)
-      pos(k,1) = rnd(1)*Lx-Lx/2
-      pos(k,2) = rnd(2)*Ly-Ly/2
-      pos(k,3) = rnd(3)*Lz-Lz/2
-      do l = 1, k-1
-        call rij_and_rr(rij,rr,k,l)
-        rr1 = pos(k,1)*pos(k,1)+pos(k,2)*pos(k,2)
-        if (rr<0.8 .or. rr1<r_cy*r_cy) then
-          m=1
-          cycle
-        end if
-      end do
+  dtheta = 2*pi/10
+  dz = Lz / (Npc/10)
+  do i = 1, 10
+    do j = 1, Npc/10
+      k = k + 1
+      pos(k,1) = r_cy * cos((i-1)*dtheta)
+      pos(k,2) = r_cy * sin((i-1)*dtheta)
+      pos(k,3) = (j-0.5) * dz
+      pos(k,4) = qqc
+      pos(k,5) = 1
     end do
-    pos(k,4) = qqc
-    pos(k,5) = 1
-  end do   
+  end do
 
 end subroutine Initialize_position
 
 
+! subroutine root(dz,dtheta)
+!   use global_variables
+!   implicit none
+!   real*8, intent(out) :: dz
+!   real*8, intent(out) :: dtheta
+!   real*8 :: fa, fb, fc, a, b, c
+
+!   fa = fun(0)
+!   fc = fun(pi)
+!   if (c==0) then
+!     dz = 0
+!     dtheta = pi
+!   else
+!     b = (a+c)/2
+!     fb = fun(b)
+!     do while((c-a)<1D-6)
+!       if (fa*fb)<=0) then
+!         c = b
+!         b = (a+c)/2
+!         fb = fun(b)
+!       else
+!         a = b
+!         b = (a+c)/2
+!         fb = fun(b)
+!       end if
+!     end do
+!     dtheta = 2*pi/(nint(2p/b))
+!     dz = Lz*(2*pi/dtheta)/Npc
+!   end if
+
+! end subroutine root
+
+
+! function fun(theta)
+!   use global_variables
+!   implicit none
+!   real*8, intent(in) :: theta
+!   real*8 :: fun 
+
+!   fun = theta*sin(theta/2)-pi*Lz/r_cy/Npc
+
+! end function
 
 subroutine CBMC_Move( EE, DeltaE, n0 )
   !------------------------------------!
@@ -239,7 +272,7 @@ subroutine CBMC_Move( EE, DeltaE, n0 )
 
     call CBMC_Move_or_not( wo, wn, DeltaE, EE )
 
-    j= nint(1.*num_newconf*Nq_salt_net/Npe) 
+    j= nint(1.*num_newconf*(NN-Np2-Npc)/Npe) 
 
     do k = 1, j
 
@@ -255,9 +288,13 @@ subroutine CBMC_Move( EE, DeltaE, n0 )
 
       call choose_ions
 
-      call delta_energy_ions_move(DeltaE)
+      if (pos_ip0(4)/=0) then
 
-      call ions_move_or_not(DeltaE,EE)
+        call delta_energy_ions_move(DeltaE)
+
+        call ions_move_or_not(DeltaE,EE)
+
+      end if
 
     end do
 
@@ -339,11 +376,7 @@ subroutine choose_ions
   real*8 :: rnd1(3)
 
   call random_number(rnd)
-  ip = int(rnd*(NN-Npe))+1+Npe
-  do while(pos(ip,4)==0) 
-    call random_number(rnd)
-    ip = int(rnd*(NN-Npe))+1+Npe
-  end do    
+  ip = int(rnd*(NN-Npe-Npc))+1+Npe  
 
   pos_ip0=pos(ip,1:4)
   call random_number(rnd1)
@@ -385,10 +418,6 @@ subroutine choose_particle_pH
   pos_ipi0=pos(ip1,1:4)
   if (pos_ip0(4)/=0) then
     pos_ip1(4)=0
-    call random_number(rnd1)
-    pos_ipi1(1)=rnd(1)*Lx-Lx/2
-    pos_ipi1(2)=rnd(2)*Ly-Ly/2
-    pos_ipi1(3)=rnd(3)*Lz-Lz/2
     pos_ipi1(4)=0
   else
     pos_ip1(4)=qq
@@ -478,7 +507,6 @@ subroutine regrow( w , DeltaE )
   real*8  :: rnd(3)
 
   w = 1
-  DeltaE = 0
   do i = 1, num_newconf
     n = Nml - num_newconf + i 
     if ( num_newconf == Nml .and. i == 1 ) then 
@@ -507,7 +535,7 @@ subroutine regrow( w , DeltaE )
       pos_new(n, :) = xt(m, :)
       DeltaE = DeltaE + eni(n)
     end if
-    call regrow_list(pos_old(n,7)+base,pos_new(n,1:4))
+    call regrow_list(pos_new(n,7)+base,pos_new(n,1:4))
   end do
 
 end subroutine regrow
@@ -750,6 +778,7 @@ subroutine CBMC_Move_or_not(wo, wn, EE, DeltaE)
   !
   !--------------------------------------!
   use global_variables
+  use compute_energy
   implicit none
   real*8, intent(in) :: wo
   real*8, intent(in) :: wn
@@ -763,11 +792,11 @@ subroutine CBMC_Move_or_not(wo, wn, EE, DeltaE)
   !
   !Judge whether move or not
   call random_number( rnd )
-  if (rnd < (wn/wo) ) then
-    pos((ic_newconf-1)*Nml+1:ic_newconf*Nml,:) = pos_new(:,:)
+  if (rnd < (wn/wo*exp(-beta*Del_E)) ) then
+    pos(base+1:base+Nml,:) = pos_new(:,:)
     accpt_num = accpt_num + num_newconf
-    EE = EE + De
-    call grow_list(.true.)
+    EE = EE + Del_E + DeltaE
+    call update_rhok
   else
     call grow_list(.false.)
   end if
@@ -776,104 +805,65 @@ subroutine CBMC_Move_or_not(wo, wn, EE, DeltaE)
 end subroutine CBMC_Move_or_not
 
 
-subroutine ions_move_or_not(De,EE)
+subroutine ions_move_or_not(DeltaE,EE)
   use global_variables
+  use compute_energy
   implicit none
-  real*8, intent(in) :: De
+  real*8, intent(in) :: DeltaE
   real*8, intent(inout) :: EE
   real*8 :: rnd
 
-  if (De<0) then
+  if (DeltaE<0) then
     pos(ip,1:4) = pos_ip1
-    call update_cell_list
-    EE = EE + De
+    call update_cell_list_ion_move
+    call uodate_rhok
+    EE = EE + DeltaE
   else
     call random_number(rnd)
-    if (rnd<exp(-De*beta)) then
+    if (rnd<exp(-DeltaE*beta)) then
       pos(ip,1:4) = pos_ip1
-      call update_cell_list
-      EE = EE + De
+      call update_cell_list_ion_move
+      call update_rhok
+      EE = EE + DeltaE
     end if
   end if
  
 end subroutine ions_move_or_not
 
 
-subroutine pH_move_or_not(De)
+subroutine pH_move_or_not(DeltaE)
   use global_variables
   implicit none
-  real*8, intent(in) :: De
+  real*8, intent(in) :: DeltaE
   real*8, intent(inout) :: EE
   real*8 :: rnd
 
-  if (De<0) then
+  if (DeltaE<0) then
     pos(ip,1:4) = pos_ip1
     pos(ip1,1:4) = pos_ipi1
-    call update_cell_list
+    if ( pos_ip0(4)==0 ) then
+      call update_cell_list_pH(.true.)
+    else
+      call update_cell_list_pH(.false.)
+    end if
+    call update_rhok
     EE = EE + De
   else
     call random_number(rnd)
-    if (rnd<exp(-De*beta)) then
+    if (rnd<exp(-DeltaE*beta)) then
       pos(ip,1:4) = pos_ip1
       pos(ip1,1:4) = pos_ipi1
-      call update_cell_list
-      EE = EE + De
+      if ( pos_ip0(4)==0 ) then
+        call update_cell_list_pH(.true.)
+      else
+        call update_cell_list_pH(.false.)
+      end if
+      call update_rhok
+      EE = EE + DeltaE
     end if
   end if
 
 end subroutine pH_move_or_not
-
-
-subroutine grow_list(new_conf)
-  use compute_energy
-  implicit none
-  logical, intent(in) :: new_conf
-
-  call add_rho_k_CBMC(new_conf)
-
-  call add_cell_list_r1_CBMC(new_conf)
-
-  call add_cell_list_r2_CBMC(new_conf)
-
-  call add_cell_list_lj_CBMC(new_conf)
-
-end subroutine grow_list
-
-
-subroutine retrace_list(np, rr)
-  use global_variables
-  use compute_energy
-  implicit none
-  integer, intent(in) :: np
-  real*8, dimension(4), intent(in) :: rr
-
-  if (rr(4)/=0) then
-
-    call delete_cell_list_real_CBMC(np,rr)
-
-  end if
-
-  call delete_cell_list_lj_CBMC(np,rr)
-
-end subroutine retrace_list
-
-
-subroutine regrow_list(np, rr)
-  use global_variables
-  use compute_energy
-  implicit none
-  integer, intent(in) :: np
-  real*8, dimension(4), intent(in) :: rr
-
-  if (pos(np,4)/=0) then
-
-    call add_cell_list_real_CBMC(np,rr)
-
-  end if
-
-  call add_cell_list_lj_CBMC(np,rr)
-
-end subroutine regrow_list
 
 
 end module initialize_update

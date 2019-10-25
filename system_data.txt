@@ -10,7 +10,7 @@
 1               ! ion_ratio
 1               ! R_bond
 2               ! r_cy
-500             ! Npc
+500             ! Npc, mod(Npc,10)==0
 20              ! DeltaStep
 20000           ! StepNum0
 50000           ! StepNum:  steps of running
