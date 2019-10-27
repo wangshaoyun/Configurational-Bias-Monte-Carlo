@@ -20,7 +20,7 @@ module compute_energy
   real*8,  private :: tol
   !
   !real space, cut off at large radius
-  real*8,  private :: rcc         !Cut off radius of real space
+  real*8,  private :: rcc          !Cut off radius of real space
   real*8,  private :: clx1         !length of cell in x direction
   real*8,  private :: cly1         !length of cell in y direction
   real*8,  private :: clz1         !length of cell in z direction
@@ -39,12 +39,12 @@ module compute_energy
   real*8,  private :: sigma       !Distance sigma in lj potential
   real*8,  private :: rcl         !Cut off radius of LJ potential
   real*8,  private :: rcl2        !rcc2=rcc*rcc  !
-  real*8,  private :: clx         !length of cell in x direction
-  real*8,  private :: cly         !length of cell in y direction
-  real*8,  private :: clz         !length of cell in z direction
   integer, private :: nclx        !number of cell in x direction
   integer, private :: ncly        !number of cell in y direction
   integer, private :: nclz        !number of cell in z direction 
+  real*8 :: clx                   !length of cell in x direction
+  real*8 :: cly                   !length of cell in y direction
+  real*8 :: clz                   !length of cell in z direction
 
 
 !##########################arrays##########################!
@@ -65,13 +65,13 @@ module compute_energy
   integer, allocatable, dimension(:,:,:), private :: cell_near_list_lj
   !
   !cell list in real space
-  integer, allocatable, dimension( : ), private :: cell_list_lj
+  integer, allocatable, dimension( : ) :: cell_list_lj
   !
   !inverse cell list in real space
   integer, allocatable, dimension( : ), private :: inv_cell_list_lj
   !
   ! head of chains, cell list
-  integer, allocatable, dimension(:,:,:), private :: hoc_lj  
+  integer, allocatable, dimension(:,:,:) :: hoc_lj  
   !
   ! head of chains, inverse cell list
   integer, allocatable, dimension(:,:,:), private :: inv_hoc_lj
@@ -90,6 +90,12 @@ module compute_energy
   !
   ! head of chains, inverse cell list
   integer, allocatable, dimension(:,:,:), private :: inv_hoc_r
+  !
+  !cell list in charged particles
+  integer, allocatable, dimension( : ), private :: cell_list_q
+  !
+  !cell list in charged particles
+  integer, allocatable, dimension( : ), private :: inv_cell_list_q
   !
   !Coulomb energy of i,j in real space
   real,  allocatable, dimension(:), private :: real_ij
@@ -119,20 +125,7 @@ contains
 
 subroutine initialize_energy_parameters
   !--------------------------------------!
-  !Initial parameters are not inputted from file and compute
-  !the total energy of the system.
-  !Input
-  !   
-  !Output
-  !   
-  !External Variables
-  !   
-  !Routine Referenced:
-  !1.
-  !Reference:
-  !The computation of alpha, rc_real et al are refered to
-  !Frenkel, Smit, 'Understanding molecular simulation: from
-  !algorithm to applications', Elsevier, 2002, pp.304-306.
+  !
   !--------------------------------------!
   use global_variables
   implicit none
@@ -153,9 +146,6 @@ subroutine initialize_energy_parameters
     !
     !Construct the coefficients vector in Fourier space
     call build_exp_ksqr
-    !
-    !
-    call pre_calculate_real_space
   end if
 
 end subroutine initialize_energy_parameters
@@ -171,10 +161,13 @@ subroutine Initialize_energy_arrays
     call Build_Charge_Ewald
     !
     !Initialize cell list of charge
-    call Initialize_cell_list_q_Ewald
+    call Initialize_lj_cell_list
     !
     !Initialize real cell list
-    call Initialize_real_cell_list_Ewald
+    call Initialize_real_cell_list
+    !
+    !
+    call Initialize_cell_list_q
     !
     !Construct the structure factor rho_k
     call build_rho_k
@@ -185,7 +178,64 @@ subroutine Initialize_energy_arrays
 end subroutine Initialize_energy_arrays
 
 
-subroutine total_energy (EE)
+subroutine error_analysis(EE1)
+  !--------------------------------------!
+  !
+  !--------------------------------------!
+  use global_variables
+  implicit none
+  real*8 :: EE0,tol1
+  real*8, intent(out) :: EE1
+
+  tol1 = tol
+  tol = 5                
+  !
+  !Initialize ewald parameters and array allocate.
+  call Initialize_ewald_parameters
+  !
+  !Construct the array totk_vectk(K_total,3), and allocate
+  !rho_k(K_total), delta_rhok(K_total).
+  call build_totk_vectk
+  !
+  !Construct the coefficients vector in Fourier space
+  call build_exp_ksqr
+  !
+  !Initialize real cell list
+  call Initialize_real_cell_list
+  !
+  !Construct the structure factor rho_k
+  call build_rho_k
+  !
+  !
+  call total_energy(EE0)
+
+  tol=tol1
+  !
+  !Initialize ewald parameters and array allocate.
+  call Initialize_ewald_parameters
+  !
+  !Construct the array totk_vectk(K_total,3), and allocate
+  !rho_k(K_total), delta_rhok(K_total).
+  call build_totk_vectk
+  !
+  !Construct the coefficients vector in Fourier space
+  call build_exp_ksqr
+  !
+  !Initialize real cell list
+  call Initialize_real_cell_list
+  !
+  !Construct the structure factor rho_k
+  call build_rho_k
+  !
+  !
+  call total_energy(EE1)
+
+  rmse = abs(EE1-EE0)/EE0
+
+end subroutine error_analysis
+
+
+subroutine total_energy(EE)
   !--------------------------------------!
   !
   !   
@@ -206,26 +256,108 @@ subroutine total_energy (EE)
 
   call LJ_Energy(EE)
 
+  call Coulomb_Energy(EE)
+
 end subroutine total_energy
 
 
-subroutine enerex_short(xt, eni)
+subroutine LJ_Energy (EE)
+  !--------------------------------------!
+  !
+  !--------------------------------------!
+  use global_variables
+  implicit none
+  real*8, intent(inout) :: EE
+  integer :: i, j, k
+  integer :: icelx, icely, icelz
+  real*8  :: rr, rij(3), inv_rr2, inv_rr6, inv_rr12, sigma2
+
+  EE = 0
+  do i = 1, NN
+    icelx = int(pos(i,1)/clx) + 1
+    icely = int(pos(i,2)/cly) + 1
+    icelz = int(pos(i,3)/clz) + 1  
+    ncel = (icelx-1)*ncly*nclz+(icely-1)*nclz+icelz 
+    do j = 1, 27
+      icelx = cell_near_list_lj(ncel,i,1)
+      icely = cell_near_list_lj(ncel,i,2)
+      icelz = cell_near_list_lj(ncel,i,3)
+      k = hoc_lj(icelx,icely,icelz)    
+      do while(k/=0)
+        if (k==i) cycle
+        call rij_and_rr(rij,rr,k,i)
+        if ( rr < rcl2 ) then
+          inv_rr2  = sigma2 / rr
+          inv_rr6  = inv_rr2 * inv_rr2 * inv_rr2
+          inv_rr12 = inv_rr6 * inv_rr6
+          EE       = EE + inv_rr12 - inv_rr6 + 0.25D0
+        end if
+        k = cell_list_lj(k)
+      end do
+    end do   
+  end do
+
+  EE = EE * 4 * epsilon
+
+end subroutine LJ_energy
+
+
+subroutine Coulomb_Energy(EE)
+  use global_variables
+  implicit none
+  integer :: i, j, k
+  integer :: icelx, icely, icelz
+  real*8  :: rr, rij(3), EE1
+
+  EE = 0
+  do i = 1, NN
+    if (pos(i,4)/=0) then
+      icelx = int(pos(i,1)/clx) + 1
+      icely = int(pos(i,2)/cly) + 1
+      icelz = int(pos(i,3)/clz) + 1  
+      ncel = (icelx-1)*ncly*nclz+(icely-1)*nclz+icelz 
+      do j = 1, 27
+        icelx = cell_near_list_r(ncel,i,1)
+        icely = cell_near_list_r(ncel,i,2)
+        icelz = cell_near_list_r(ncel,i,3)
+        k = hoc_r(icelx,icely,icelz)    
+        do while(k/=0)
+          if (k==i) cycle
+          call rij_and_rr(rij,rr,k,i)
+          rr = sqrt(rr)
+          if (rr<rcc) then
+            EE1 = EE1 + pos(k,4) * erfc(alpha * rr) / rr
+          end if
+          k = cell_list_r(k)
+        end do
+      end do 
+    end if
+    EE = EE + EE1 * pos(i,4)
+  end do
+  !
+  !fourier space
+  EE = EE + EE/Beta*lb + sum( exp_ksqr * real( conjg(rho_k) * rho_k ) )/2.D0 
+
+end subroutine Coulomb_Energy
+
+
+subroutine energy_short(xt, eni)
   use global_variables
   implicit none
   real*8, intent(out) :: eni
   real*8, dimension(4), intent(in) :: xt
   integer :: icelx, icely, icelz, ncel
   integer :: i, j, k
-  real*8 :: rij(3), rr, EE1, EE2, rc_lj2, sigma2
+  real*8 :: rij(3), rr, EE1, EE2, sigma2
   real*8 :: inv_rr2, inv_rr6, inv_rr12
 
   EE1 = 0
   if (xt(4)/=0) then
-    icelx = int(rr(1)/clx1) + 1
-    icely = int(rr(2)/cly1) + 1
-    icelz = int(rr(3)/clz1) + 1
+    icelx = int(xt(1)/clx1) + 1
+    icely = int(xt(2)/cly1) + 1
+    icelz = int(xt(3)/clz1) + 1
     ncel = (icelx-1)*ncly1*nclz1+(icely-1)*nclz1+icelz
-    do i = cell_near_list_r(ncel,28,1)
+    do i = 1, 27
       icelx = cell_near_list_r(ncel,i,1)
       icely = cell_near_list_r(ncel,i,2)
       icelz = cell_near_list_r(ncel,i,3)
@@ -235,7 +367,7 @@ subroutine enerex_short(xt, eni)
         call periodic_condition(rij)
         rr = sqrt(rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3))
         if (rr<rcc) then
-          EE1=EE1+pos(j,4)*erfc(alpha * rr) / rr
+          EE1 = EE1 + pos(j,4)*erfc(alpha * rr) / rr
         end if
         j = cell_list_r(j)
       end do
@@ -244,11 +376,11 @@ subroutine enerex_short(xt, eni)
   end if
 
   EE2 = 0
-  icelx = int(rr(1)/clx) + 1
-  icely = int(rr(2)/cly) + 1
-  icelz = int(rr(3)/clz) + 1  
+  icelx = int(xt(1)/clx) + 1
+  icely = int(xt(2)/cly) + 1
+  icelz = int(xt(3)/clz) + 1  
   ncel = (icelx-1)*ncly*nclz+(icely-1)*nclz+icelz
-  do i = cell_near_list_lj(ncel,28,1)
+  do i = 1, 27
     icelx = cell_near_list_lj(ncel,i,1)
     icely = cell_near_list_lj(ncel,i,2)
     icelz = cell_near_list_lj(ncel,i,3)
@@ -257,7 +389,7 @@ subroutine enerex_short(xt, eni)
       rij = xt(1:3) - pos(j,1:3)
       call periodic_condition(rij)
       rr = rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3)
-      if ( rr < rc_lj2 ) then
+      if ( rr < rcl2 ) then
         inv_rr2  = sigma2 / rr
         inv_rr6  = inv_rr2 * inv_rr2 * inv_rr2
         inv_rr12 = inv_rr6 * inv_rr6
@@ -275,7 +407,7 @@ subroutine enerex_short(xt, eni)
     eni = eni + 1e10
   end if
 
-end subroutine enerex_short
+end subroutine energy_short
 
 
 subroutine energy_long(DeltaE)
@@ -323,7 +455,7 @@ subroutine energy_long(DeltaE)
 
   c1 = 2*pi/Lx
   c2 = 2*pi/Ly
-  c3 = 2*pi/Lz/Z_empty
+  c3 = 2*pi/Lz
 
   do i = 1, n1
 
@@ -464,64 +596,9 @@ subroutine Delta_energy_pH(DeltaE)
 end subroutine Delta_energy_pH
 
 
-subroutine LJ_energy (EE)
-  !--------------------------------------!
-  !Compute total LJ potential energy,
-  !including LJ energy of wall.
-  !   
-  !Input
-  !   EE
-  !Output
-  !   EE
-  !External Variables
-  !   lj_point, lj_pair_list, pos, 
-  !   epsilon, sigma, rc_lj, Lz
-  !Routine Referenced:
-  !1. rij_and_rr( rij, rr, i, j )
-  !Reference:
-  !1.In fact, the cut-off radius in good solvent is 2^(1/6), 
-  !  which was first obatained by JOHN D. WEEKS, DAVID CHANDLER
-  !  and HANS C. ANDERSEN. So it is called WCA potential.
-  !  JOHN D. WEEKS, DAVID CHANDLER and HANS C. ANDERSEN, 'Role of 
-  !  Repulsive Forces in Determining the Equilibrium Structure of
-  !  Simple Liquids', THE JOURNAL OF CHEMICAL PHYSICS, Vol. 54, 
-  !  pp.5237-5247, (1971).
-  !2.The potential of particle and wall are 9-3 LJ potential which is
-  !  cut off at 0.4^(1/6) = 0.86.
-  !  Yu-Fan Ho, et al, 'Structure of Polyelectrolyte Brushes Subject
-  !  to Normal Electric Fields', Langmuir, 19, pp.2359-2370, (2013).
-  !--------------------------------------!
-  use global_variables
-  implicit none
-  real*8, intent(inout) :: EE
-  integer :: i, j, k, l, m
-  real*8  :: rr, rij(3), inv_rr2, inv_rr6
-
-end subroutine LJ_energy
-
-
 subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
   !--------------------------------------!
-  !Compute change of LJ potential Energy.
-  !   
-  !Input
-  !   DeltaE
-  !Output
-  !   DeltaE
-  !External Variables
-  !   pos, lj_pair_list, lj_point
-  !   pos_ip0, pos_ip1, ip
-  !   Lx, Ly, Lz, sigma, epsilon, rc_lj
-  !Routine Referenced:
   !
-  !Reference:
-  !In fact, the cut-off radius in good solvent is 2^(1/6), 
-  !which was first obatained by JOHN D. WEEKS, DAVID CHANDLER
-  !and HANS C. ANDERSEN. So it is called WCA potential.
-  !JOHN D. WEEKS, DAVID CHANDLER and HANS C. ANDERSEN, 'Role of 
-  !Repulsive Forces in Determining the Equilibrium Structure of
-  !Simple Liquids', THE JOURNAL OF CHEMICAL PHYSICS, Vol. 54, 
-  !pp.5237-5247, (1971).
   !--------------------------------------!
   use global_variables
   implicit none
@@ -529,19 +606,18 @@ subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
   real*8, dimension(4), intent(in) :: ri
   integer, intent(in) :: np
   logical, intent(in) :: lg
-  real*8  :: EE, sigma2, rc_lj2
+  real*8  :: EE, sigma2
   real*8  :: rij(3), rr, inv_rr2, inv_rr6, inv_rr12
   integer :: i, j, k, l
 
   EE     = 0
   sigma2 = sigma * sigma
-  rc_lj2 = rc_lj * rc_lj
 
   icelx = int(ri(1)/clx) + 1
   icely = int(ri(2)/cly) + 1
   icelz = int(ri(3)/clz) + 1  
   ncel = (icelx-1)*ncly*nclz+(icely-1)*nclz+icelz
-  do i = cell_near_list_lj(ncel,28,1)
+  do i = 1, 27
     icelx = cell_near_list_lj(ncel,i,1)
     icely = cell_near_list_lj(ncel,i,2)
     icelz = cell_near_list_lj(ncel,i,3)
@@ -550,7 +626,7 @@ subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
       rij = ri(1:3) - pos(j,1:3)
       call periodic_condition(rij)
       rr = rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3)
-      if ( rr < rc_lj2 ) then
+      if ( rr < rcl2 ) then
         inv_rr2  = sigma2 / rr
         inv_rr6  = inv_rr2 * inv_rr2 * inv_rr2
         inv_rr12 = inv_rr6 * inv_rr6
@@ -584,7 +660,7 @@ subroutine Delta_real_energy(lg, np, ri, DeltaE)
   icely = int(ri(2)/cly1) + 1
   icelz = int(ri(3)/clz1) + 1
   ncel = (icelx-1)*ncly1*nclz1+(icely-1)*nclz1+icelz
-  do i = cell_near_list_r(ncel,28,1)
+  do i = 1, 27
     icelx = cell_near_list_r(ncel,i,1)
     icely = cell_near_list_r(ncel,i,2)
     icelz = cell_near_list_r(ncel,i,3)
@@ -626,7 +702,7 @@ subroutine Delta_Reciprocal_Energy(r1, r2, DeltaE)
 
   c1 = 2*pi / Lx
   c2 = 2*pi / Ly
-  c3 = 2*pi / (Lz*Z_empty)
+  c3 = 2*pi / Lz
 
   eikx0(0)  = ( 1,0 )
   eiky0(0)  = ( 1,0 )
@@ -648,7 +724,6 @@ subroutine Delta_Reciprocal_Energy(r1, r2, DeltaE)
   end do
   do r = 2, Kmax3
     eikz0(r)  = eikz0(r-1) * eikz0(1)
-    eikz0(-r) = conjg(eikz0(r))
   end do
 
   eikx1(0)  = ( 1,0 )
@@ -671,7 +746,6 @@ subroutine Delta_Reciprocal_Energy(r1, r2, DeltaE)
   end do
   do r=2, Kmax3
     eikz1(r)  = eikz1(r-1) * eikz1(1)
-    eikz1(-q) = conjg(eikz1(q))
   end do
 
   do i=1, K_total
@@ -710,7 +784,7 @@ subroutine Delta_Reciprocal_Energy_pH(lg, r1, r2, DeltaE)
 
   c1 = 2*pi / Lx
   c2 = 2*pi / Ly
-  c3 = 2*pi / (Lz*Z_empty)
+  c3 = 2*pi / Lz
 
   eikx0(0)  = ( 1,0 )
   eiky0(0)  = ( 1,0 )
@@ -732,7 +806,6 @@ subroutine Delta_Reciprocal_Energy_pH(lg, r1, r2, DeltaE)
   end do
   do r = 2, Kmax3
     eikz0(r)  = eikz0(r-1) * eikz0(1)
-    eikz0(-r) = conjg(eikz0(r))
   end do
 
   eikx1(0)  = ( 1,0 )
@@ -755,7 +828,6 @@ subroutine Delta_Reciprocal_Energy_pH(lg, r1, r2, DeltaE)
   end do
   do r=2, Kmax3
     eikz1(r)  = eikz1(r-1) * eikz1(1)
-    eikz1(-q) = conjg(eikz1(q))
   end do
 
   if (lg) then
@@ -798,7 +870,6 @@ subroutine read_energy_parameters
     read(100,*) epsilon
     read(100,*) sigma
     read(100,*) rcl
-    read(100,*) rcc0
     read(100,*) lb
     read(100,*) tol
     read(100,*) tau_rf
@@ -812,9 +883,9 @@ subroutine initialize_lj_parameters
   implicit none
 
   rcl2 = rcl*rcl
-  nclx = int(Lx/(rcl+1))
-  ncly = int(Ly/(rcl+1))
-  nclz = int(Lz/(rcl+1))
+  nclx = int(Lx/rcl)
+  ncly = int(Ly/rcl)
+  nclz = int(Lz/rcl)
 
   clx = Lx/nclx
   cly = Ly/ncly
@@ -827,90 +898,72 @@ subroutine Initialize_ewald_parameters
   use global_variables
   implicit none
 
-  alpha    = ( tau_rf * pi**3 * Nq / (Lx*Ly*Lz*Z_empty)**2 ) ** (1.D0/6)
+  alpha    = ( tau_rf * pi**3 * Nq / (Lx*Ly*Lz)**2 ) ** (1.D0/6)
   alpha2   = alpha * alpha
-  rcc1  = tol / alpha
-  rcc12 = rcc1 * rcc1
-  if (rcc1<min(Lx/3,Lz/3)) then
+  rcc  = tol / alpha
+  if (rcc<min(Lx/3,Lz/3)) then
     !
     !use verlet list in real space
     Kmax1 = ceiling(tol*Lx*alpha/pi)
     Kmax2 = ceiling(tol*Ly*alpha/pi)
     Kmax3 = ceiling(tol*Lz*alpha/pi)
   else
-    rcc1 = min(Lx/3,Lz/3)
+    rcc = min(Lx/3,Lz/3)
     Kmax1    = ceiling(tol*tol/pi*Lx/rcc)
     Kmax2    = ceiling(tol*tol/pi*Ly/rcc)
     Kmax3    = ceiling(tol*tol/pi*Lz/rcc)
-    alpha    = tol / rcc1
+    alpha    = tol / rcc
     alpha2   = alpha * alpha
-    rcc12 = rcc1 * rcc1
   end if
   !
   !Cell list parameters
-  nclx1 = int(Lx/rcc1)     !cell numbers in x direction
-  ncly1 = int(Ly/rcc1)
-  nclz1 = int(Lz/rcc1)
+  nclx1 = int(Lx/rcc)     !cell numbers in x direction
+  ncly1 = int(Ly/rcc)
+  nclz1 = int(Lz/rcc)
   clx1 = Lx/nclx1         !cell length    
   cly1 = Ly/ncly1
   clz1 = Lz/nclz1
 
-  rcc02 = rcc0*rcc0
-
-  nclx0 = int(Lx/rcc0)    !cell numbers in x direction
-  ncly0 = int(Ly/rcc0)
-  nclz0 = int(Lz/rcc0)
-  clx0 = Lx/nclx1         !cell length    
-  cly0 = Ly/ncly1
-  clz0 = Lz/nclz1
-
 end subroutine Initialize_ewald_parameters
 
 
-subroutine pre_calculate_real_space
+subroutine Build_Charge_Ewald
+  !--------------------------------------!
+  !
+  !--------------------------------------!
   use global_variables
   implicit none
-  integer :: n=200000, i
-  real*8 :: del_r, rr
+  integer :: i, j
 
-  if (allocated(real_ij0)) deallocate(real_ij0)
-  if (allocated(real_ij1)) deallocate(real_ij1)
-  allocate( real_ij0(n) )
-  allocate( real_ij1(n) )
+  if (allocated(charge)) deallocate(charge)
+  allocate(charge(Nq))
+  if (allocated(inv_charge)) deallocate(inv_charge)
+  allocate(inv_charge(NN))
 
-  del_r = rcc1/n
-  do i = 1, n
-    rr = del_r*i
-    real_ij1(i) = erfc(alpha*rr)/rr 
+  j = 0
+  do i = 1, NN
+    if ( pos(i,4) /= 0 ) then
+      j = j + 1
+      charge(j) = i
+    end if
   end do
 
-  del_r = rcc0/n
-  do i = 1, n
-    rr = del_r*i
-    real_ij0(i) = erfc(alpha*rr)/rr 
+  j = 0
+  do i = 1, NN
+    if ( pos(i,4) /= 0 ) then
+      j = j + 1
+      inv_charge(i) = j
+    else
+      inv_charge(i) = 0
+    end if
   end do
 
-end subroutine pre_calculate_real_space
+end subroutine Build_Charge_Ewald
 
 
 subroutine build_totk_vectk
   !--------------------------------------!
-  !exp_ksqr, rho_k, delta_rhok are all vectors with size of
-  !K_total. For i = 1 to K_total, we often need to know 
-  !corresponding wave number kx,ky,kz. This progam build a 
-  !array totk_vectk(1:K_total,3) to store kx,ky,kz.
-  !What's more, rho_k and delta_rhok are allocated here.
-  !   
-  !Input
-  !   
-  !Output
-  !   totk_vectk
-  !   K_total
-  !External Variables
-  !   K_total, Kmax1, Kmax2, Kmax3
-  !   totk_vectk
-  !Routine Referenced:
-  !   
+  !
   !--------------------------------------!
   use global_variables
   implicit none
@@ -967,28 +1020,7 @@ end subroutine build_totk_vectk
 
 subroutine build_exp_ksqr
   !--------------------------------------!
-  !Reciprocal energy is divided to three parts: 
-  !1.structrure factor is referred to rho_k.
-  !2.difference of structure factor between new and old
-  !position is referred to delta_rhok.
-  !3.the other which includes exp(k^2/4/alpha) is referred 
-  !to exp_ksqr.
-  !This program is used to bulid the third part.
   !
-  !Input
-  !   
-  !Output
-  !   exp_ksqr
-  !External Variables
-  !   K_total
-  !   Kmax1, Kmax2, Kmax3
-  !   alpha2, lb
-  !   Lx, Ly, Lz, Z_empty
-  !   Beta
-  !Reference:
-  !Frenkel, Smit, 'Understanding molecular simulation: from
-  !algorithm to applications', Elsevier, 2002, pp.300(12.1.25),
-  !however his alpha is alpha^2 in this program.b 
   !--------------------------------------!
   use global_variables
   implicit none
@@ -1020,17 +1052,7 @@ end subroutine build_exp_ksqr
 
 subroutine build_rho_k
   !--------------------------------------!
-  !Calculate the structure factor array.
-  !   
-  !Input
-  !   
-  !Output
-  !   rho_k
-  !External Variables
-  !   pos, charge
-  !   Nq, Lx, Ly, Lz, Z_empty, K_total
-  !Routine Referenced:
-  !1.
+  !
   !--------------------------------------!
   use global_variables
   implicit none
@@ -1039,25 +1061,17 @@ subroutine build_rho_k
   complex(kind=8) :: eikz(1:Nq, 0:Kmax3)
   integer i,j,l,m,n,p,q,r,ord(3)
   real*8 :: c1, c2, c3
-  real*8 :: zq(Nq)
   rho_k = 0
-  zq = 0
   eikx = 0
   eiky = 0
   eikz = 0
 
-  m = cell_list_q(Nq+1)
-  do while( cell_list_q(m)/=0 )
-    zq(m) = pos(charge(m),4)
-    m = cell_list_q(m)
-  end do
-
   c1 = 2*pi/Lx
   c2 = 2*pi/Ly
   c3 = 2*pi/Lz
-  m = cell_list_q(Nq+1)
-  do while(m /= 0)
-    i = charge(m)
+  i = cell_list_q(NN+1)
+  do while(i /= 0)
+    m = inv_charge(i)
     eikx(m,0)  = (1,0)
     eiky(m,0)  = (1,0)
     eikz(m,0)  = (1,0)
@@ -1068,39 +1082,43 @@ subroutine build_rho_k
 
     eikx(m,-1) = conjg(eikx(m,1))
     eiky(m,-1) = conjg(eiky(m,1))
-    m = cell_list_q(m)
+    i = cell_list_q(i)
   end do
 
   do p=2, Kmax1
-    m = cell_list_q(Nq+1)
-    do while(m/=0)
+    i = cell_list_q(NN+1)
+    do while(i/=0)
+      m = inv_charge(i)
       eikx(m,p)=eikx(m,p-1)*eikx(m,1)
       eikx(m,-p)=conjg(eikx(m,p))
-      m = cell_list_q(m)
+      i = cell_list_q(i)
     end do
   end do
   do q=2, Kmax2
-    m = cell_list_q(Nq+1)
-    do while(m/=0)
+    i = cell_list_q(NN+1)
+    do while(i/=0)
+      m = inv_charge(i)
       eiky(m,q)=eiky(m,q-1)*eiky(m,1)
       eiky(m,-q)=conjg(eiky(m,q))
-      m = cell_list_q(m)
+      i = cell_list_q(i)
     end do
   end do
   do r=2, Kmax3
-    m = cell_list_q(Nq+1)
-    do while(m/=0)
+    i = cell_list_q(NN+1)
+    do while(i/=0)
+      m = inv_charge(i)
       eikz(m,r)=eikz(m,r-1)*eikz(m,1)
-      m = cell_list_q(m)
+      i = cell_list_q(i)
     end do
   end do
 
   do i = 1, K_total
     ord = totk_vectk(i,:)
-    m = cell_list_q(Nq+1)
+    m = cell_list_q(NN+1)
     do while(m/=0)
+      j = inv_charge(m)
       rho_k(i) = rho_k(i) + &
-                 zq(m) * eikx(m,ord(1)) * eiky(m,ord(2)) * eikz(m,ord(3))
+                 pos(m,4) * eikx(j,ord(1)) * eiky(j,ord(2)) * eikz(j,ord(3))
       m = cell_list_q(m)
     end do
   end do
@@ -1118,40 +1136,33 @@ subroutine Initialize_real_cell_list
   ! maxium situation, (125,125,100), 6.2Mb RAM is needed.
   if (allocated(hoc_r)) deallocate(hoc_r)
   if (allocated(inv_hoc_r)) deallocate(inv_hoc_r)
-  allocate(hoc_r(nclx,ncly,nclz))
-  allocate(inv_hoc_r(nclx,ncly,nclz))
+  allocate(hoc_r(nclx1,ncly1,nclz1))
+  allocate(inv_hoc_r(nclx1,ncly1,nclz1))
   hoc_r = 0
   inv_hoc_r = 0
 
   if (allocated(cell_list_r)) deallocate(cell_list_r)
   if (allocated(inv_cell_list_r)) deallocate(inv_cell_list_r)
-  allocate(cell_list_r(Nq))
-  allocate(inv_cell_list_r(Nq))
+  allocate(cell_list_r(NN))
+  allocate(inv_cell_list_r(NN))
   cell_list_r = 0
   inv_cell_list_r = 0
 
-  Mz = 0
   do i = 1, NN
-    Mz = Mz + pos(i,4)*pos(i,3)/2.D0 !sigma unit
-  end do
-
-  do i = 1, Nq
-    j = charge(i)
-    if (pos(j,4)/=0) then
-      icelx = int((pos(j,1)-1)/clx) + 1
-      icely = int((pos(j,2)-1)/cly) + 1
-      icelz = int((pos(j,3)-1)/clz) + 1
+    if (pos(i,4)/=0) then
+      icelx = int((pos(i,1)-1)/clx1) + 1
+      icely = int((pos(i,2)-1)/cly1) + 1
+      icelz = int((pos(i,3)-1)/clz1) + 1
       cell_list_r(i) = hoc_r(icelx,icely,icelz)
       hoc_r(icelx,icely,icelz) = i
     end if
   end do
 
-  do i = Nq, 1, -1
-    j = charge(i)
-    if (pos(j,4)/=0) then
-      icelx = int((pos(j,1)-1)/clx) + 1
-      icely = int((pos(j,2)-1)/cly) + 1
-      icelz = int((pos(j,3)-1)/clz) + 1
+  do i = NN, 1, -1
+    if (pos(i,4)/=0) then
+      icelx = int((pos(i,1)-1)/clx1) + 1
+      icely = int((pos(i,2)-1)/cly1) + 1
+      icelz = int((pos(i,3)-1)/clz1) + 1
       inv_cell_list_r(i) = inv_hoc_r(icelx,icely,icelz)
       inv_hoc_r(icelx,icely,icelz) = i
     end if
@@ -1159,13 +1170,13 @@ subroutine Initialize_real_cell_list
 
   !
   ! maxium situation, (125*125*100,28,3), 500Mb RAM is needed.
-  if(allocated(cell_near_list)) deallocate(cell_near_list)
-  allocate(cell_near_list(nclx*ncly*nclz,28,3))
-  cell_near_list = 0
+  if(allocated(cell_near_list_r)) deallocate(cell_near_list_r)
+  allocate(cell_near_list_r(nclx1*ncly1*nclz1,27,3))
+  cell_near_list_r = 0
   m = 0
-  do i = 1, nclx
-    do j = 1, ncly
-      do k = 1, nclz
+  do i = 1, nclx1
+    do j = 1, ncly1
+      do k = 1, nclz1
         m = m + 1
         n = 0
         do p = -1, 1
@@ -1174,37 +1185,68 @@ subroutine Initialize_real_cell_list
               x = i + p
               y = j + q
               z = k + r
-              if (z>0 .and. z<=nclz) then
-                n = n + 1
-                if (x>nclx) then
-                  x = x - nclx
-                elseif (x<=0) then
-                  x = x + nclx
-                end if
-                if (y>ncly) then
-                  y = y - ncly
-                elseif (y<=0) then
-                  y = y + ncly
-                end if
-                cell_near_list(m,n,1) = x
-                cell_near_list(m,n,2) = y
-                cell_near_list(m,n,3) = z
+              n = n + 1
+              if (x>nclx1) then
+                x = x - nclx1
+              elseif (x<=0) then
+                x = x + nclx1
               end if
+              if (y>ncly1) then
+                y = y - ncly1
+              elseif (y<=0) then
+                y = y + ncly1
+              end if
+              if (z>nclz1) then
+                z = z - nclz1
+              elseif (z<=0) then
+                z = z + nclz1
+              end if
+              cell_near_list_r(m,n,1) = x
+              cell_near_list_r(m,n,2) = y
+              cell_near_list_r(m,n,3) = z
             end do
           end do
         end do
-        cell_near_list(m,28,1) = n
       end do
     end do
   end do
 
   open(113,file='./data/cell_list_r.txt')
-    do i = 1, Nq
+    do i = 1, NN
       write(113,*) i, cell_list_r(i), inv_cell_list_r(i)
     end do
   close(113)
 
 end subroutine Initialize_real_cell_list
+
+
+subroutine Initialize_cell_list_q
+  use global_variables
+  implicit none
+  integer :: i, j, k 
+
+  if (allocated(cell_list_q)) deallocate(cell_list_q)
+  if (allocated(inv_cell_list_q)) deallocate(inv_cell_list_q)
+  allocate(cell_list_q(NN+1))
+  allocate(inv_cell_list_q(NN+1))
+  cell_list_q = 0
+  inv_cell_list_q = 0
+
+  do i = 1, NN
+    if (pos(i,4) /= 0) then
+      cell_list_q(i) = cell_list_q(NN+1)
+      cell_list_q(NN+1) = i
+    end if
+  end do
+
+  do i = NN, 1, -1
+    if (pos(i,4) /= 0) then
+      inv_cell_list_q(i) = inv_cell_list_q(NN+1)
+      inv_cell_list_q(NN+1) = i
+    end if
+  end do
+
+end subroutine Initialize_cell_list_q
 
 
 subroutine Initialize_lj_cell_list
@@ -1215,51 +1257,40 @@ subroutine Initialize_lj_cell_list
 
   !
   ! maxium situation, (125,125,100), 6.2Mb RAM is needed.
-  if (allocated(hoc_r)) deallocate(hoc_r)
-  if (allocated(inv_hoc_r)) deallocate(inv_hoc_r)
-  allocate(hoc_r(nclx,ncly,nclz))
-  allocate(inv_hoc_r(nclx,ncly,nclz))
-  hoc_r = 0
-  inv_hoc_r = 0
+  if (allocated(hoc_lj)) deallocate(hoc_lj)
+  if (allocated(inv_hoc_lj)) deallocate(inv_hoc_lj)
+  allocate(hoc_lj(nclx,ncly,nclz))
+  allocate(inv_hoc_lj(nclx,ncly,nclz))
+  hoc_lj = 0
+  inv_hoc_lj = 0
 
-  if (allocated(cell_list_r)) deallocate(cell_list_r)
-  if (allocated(inv_cell_list_r)) deallocate(inv_cell_list_r)
-  allocate(cell_list_r(Nq))
-  allocate(inv_cell_list_r(Nq))
-  cell_list_r = 0
-  inv_cell_list_r = 0
+  if (allocated(cell_list_lj)) deallocate(cell_list_lj)
+  if (allocated(inv_cell_list_lj)) deallocate(inv_cell_list_lj)
+  allocate(cell_list_r(NN-Npc))
+  allocate(inv_cell_list_r(NN-Npc))
+  cell_list_lj = 0
+  inv_cell_list_lj = 0
 
-  Mz = 0
-  do i = 1, NN
-    Mz = Mz + pos(i,4)*pos(i,3)/2.D0 !sigma unit
+  do i = 1, NN-Npc
+    icelx = int((pos(i,1)-1)/clx) + 1
+    icely = int((pos(i,2)-1)/cly) + 1
+    icelz = int((pos(i,3)-1)/clz) + 1
+    cell_list_lj(i) = hoc_lj(icelx,icely,icelz)
+    hoc_lj(icelx,icely,icelz) = i
   end do
 
-  do i = 1, Nq
-    j = charge(i)
-    if (pos(j,4)/=0) then
-      icelx = int((pos(j,1)-1)/clx) + 1
-      icely = int((pos(j,2)-1)/cly) + 1
-      icelz = int((pos(j,3)-1)/clz) + 1
-      cell_list_r(i) = hoc_r(icelx,icely,icelz)
-      hoc_r(icelx,icely,icelz) = i
-    end if
-  end do
-
-  do i = Nq, 1, -1
-    j = charge(i)
-    if (pos(j,4)/=0) then
-      icelx = int((pos(j,1)-1)/clx) + 1
-      icely = int((pos(j,2)-1)/cly) + 1
-      icelz = int((pos(j,3)-1)/clz) + 1
-      inv_cell_list_r(i) = inv_hoc_r(icelx,icely,icelz)
-      inv_hoc_r(icelx,icely,icelz) = i
-    end if
+  do i = NN-Npc, 1, -1
+    icelx = int((pos(i,1)-1)/clx) + 1
+    icely = int((pos(i,2)-1)/cly) + 1
+    icelz = int((pos(i,3)-1)/clz) + 1
+    inv_cell_list_lj(i) = inv_hoc_lj(icelx,icely,icelz)
+    inv_hoc_lj(icelx,icely,icelz) = i
   end do
 
   !
   ! maxium situation, (125*125*100,28,3), 500Mb RAM is needed.
-  if(allocated(cell_near_list)) deallocate(cell_near_list)
-  allocate(cell_near_list(nclx*ncly*nclz,28,3))
+  if(allocated(cell_near_list_lj)) deallocate(cell_near_list_lj)
+  allocate(cell_near_list_lj(nclx*ncly*nclz,27,3))
   cell_near_list = 0
   m = 0
   do i = 1, nclx
@@ -1273,33 +1304,35 @@ subroutine Initialize_lj_cell_list
               x = i + p
               y = j + q
               z = k + r
-              if (z>0 .and. z<=nclz) then
-                n = n + 1
-                if (x>nclx) then
-                  x = x - nclx
-                elseif (x<=0) then
-                  x = x + nclx
-                end if
-                if (y>ncly) then
-                  y = y - ncly
-                elseif (y<=0) then
-                  y = y + ncly
-                end if
-                cell_near_list(m,n,1) = x
-                cell_near_list(m,n,2) = y
-                cell_near_list(m,n,3) = z
+              n = n + 1
+              if (x>nclx) then
+                x = x - nclx
+              elseif (x<=0) then
+                x = x + nclx
               end if
+              if (y>ncly) then
+                y = y - ncly
+              elseif (y<=0) then
+                y = y + ncly
+              end if
+              if (x>nclz) then
+                z = z - nclz
+              elseif (x<=0) then
+                z = z + nclz
+              end if
+              cell_near_list_lj(m,n,1) = x
+              cell_near_list_lj(m,n,2) = y
+              cell_near_list_lj(m,n,3) = z
             end do
           end do
         end do
-        cell_near_list(m,28,1) = n
       end do
     end do
   end do
 
-  open(113,file='./data/cell_list_r.txt')
-    do i = 1, Nq
-      write(113,*) i, cell_list_r(i), inv_cell_list_r(i)
+  open(113,file='./data/cell_list_lj.txt')
+    do i = 1, NN-Npc
+      write(113,*) i, cell_list_lj(i), inv_cell_list_lj(i)
     end do
   close(113)
 
@@ -1539,6 +1572,39 @@ subroutine regrow_list(np, rr)
   call add_cell_list_lj(np,rr)
 
 end subroutine regrow_list
+
+
+subroutine write_energy_parameters_Ewald
+  !--------------------------------------!
+  !
+  !--------------------------------------!
+  use global_variables
+  implicit none
+
+  write(*,*) '******************  Potential  *********************'
+  write(*,*) 'Kmax1      :', Kmax1
+  write(*,*) 'Kmax2      :', Kmax2
+  write(*,*) 'Kmax3      :', Kmax3
+  write(*,*) 'K_total    :', K_total
+  write(*,*) 'alpha      :', alpha
+  write(*,*) 'tol        :', tol
+  write(*,*) 'tau_rf     :', tau_rf
+  write(*,*) 'rcc        :', rcc
+  write(*,*) 'nclx1      :', nclx1
+  write(*,*) 'ncly1      :', ncly1
+  write(*,*) 'nclz1      :', nclz1
+  write(*,*) 'clx1       :', clx1
+  write(*,*) 'cly1       :', cly1
+  write(*,*) 'clz1       :', clz1
+  write(*,*) 'nclx       :', nclx
+  write(*,*) 'ncly       :', ncly
+  write(*,*) 'nclz       :', nclz
+  write(*,*) 'clx        :', clx
+  write(*,*) 'cly        :', cly
+  write(*,*) 'clz        :', clz
+  write(*,*) '****************************************************'
+
+end subroutine write_energy_parameters_Ewald
 
 
 end module compute_energy

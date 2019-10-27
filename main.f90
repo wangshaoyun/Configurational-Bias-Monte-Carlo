@@ -29,7 +29,7 @@ implicit none
     call Initialize_position
     !
     !initialize energy arrays
-    call initialize_energy_arrays
+    call Initialize_energy_arrays
     !
     !output data
     call write_pos
@@ -51,7 +51,7 @@ implicit none
   end if
 !#####################################!
 
-
+  k = 0
 !##############Preheation#############!
   if ( i <= StepNum0 ) then
     do step = i, StepNum0

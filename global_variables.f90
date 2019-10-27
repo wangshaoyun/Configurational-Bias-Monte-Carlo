@@ -17,12 +17,13 @@ module global_variables
   integer :: Npc      !particles on cylinder
   integer :: Npe      !Total monomers in Polyelectrolytes(PE)
   integer :: Nq_PE    !charges on PE
-  integer :: Nq_net   !net charges on PE
+  integer :: Nq_pe_net    ! net charges on PE
   integer :: Nq_salt_ions ! salt ions
-  integer :: Nq_ions_net
+  integer :: Nq_ions_net  ! net ions
+  integer :: Nq_net   ! net charges in system 
   integer :: man      !Manning effect, each man particle have one charge
   real*8  :: r_cy     !radius of cylinder
-  real*8  :: rho      !Polymer monomer number density
+  real*8  :: rho      !Polymer density
   real*8  :: rho_c    !line charge density on cylinder 
   real*8  :: qq       !Charge of charged monomers
   real*8  :: qqi      !charge of salt
@@ -41,6 +42,7 @@ module global_variables
 
 !##################running and Histogram###################!
   integer :: restart_or_continue  !restart or continue after breaking off 
+  integer :: multistep_or_not     !0 : not use multistep, 1: use multistep
   integer :: StepNum0             !steps of preheating
   integer :: StepNum              !steps of running
   integer :: DeltaStep            !steps of pH titeration
@@ -48,12 +50,14 @@ module global_variables
   integer :: DeltaStep2           !step histogram
   integer :: DeltaStep3           !step write data
   integer :: step                 !steps of calculate the physical quantities
+  integer :: multistep            !multistep
   real*8  :: dr                   !length of each moving
-  real*8  :: std                  !std of regrow bonds
   real*8  :: total_num = 0        !Total choose number
-  real*8  :: accpt_num = 0        !accepted number
-  real*8  :: accpt_ratio          !accepted ratio
-  real*8  :: best_accpt_ratio     !best accepted ratio
+  real*8  :: accept_num = 0       !accepted number
+  real*8  :: accept_ratio_p       !accepted ratio of polymer
+  real*8  :: accept_ratio_ion     !accepted ratio of ions
+  real*8  :: accept_ratio_pH      !accepted ratio of pH
+  real*8  :: best_accept_ratio    !best accepted ratio
   real*8  :: delta_dr             !adjust move distance
   !
   !timing
@@ -66,17 +70,13 @@ module global_variables
 !################end running and Histogram#################!
 
 !##########################arrays##########################!
+ !pos(i,6): position i now is occupied by particle pos(i,6)
+ !pos(i,7): particle i now is in position pos(i,7)
  real*8, allocatable, dimension(:,:) :: pos     !old position array
  real*8, allocatable, dimension(:,:) :: pos_old !new position of part of chains
  real*8, allocatable, dimension(:,:) :: pos_new !new position of part of chains
- integer, allocatable, dimension(:)  :: pos_ord     !
- integer, allocatable, dimension(:)  :: inv_pos_ord !
- integer, allocatable, dimension(:)  :: ord_conf    !
- integer, allocatable, dimension(:)  :: inv_ord_conf!
  integer :: ic_newconf                          !The chain that is choosed
- integer :: ib_newconf                        !order of first monomer regrowed
  integer :: num_newconf                         !numbers of monomers regrowed
- integer :: cas                                 !4 cases
  integer :: base                                !(ic_newconf)*Nml
  integer :: k_try                               !try numbers
  integer :: ip
@@ -85,10 +85,9 @@ module global_variables
  real*8  :: pos_ip1(4)
  real*8  :: pos_ipi0(4)
  real*8  :: pos_ipi1(4)
-
 !########################end arrays########################!
 
-  contains 
+contains 
 
 subroutine periodic_condition(rr)
   !--------------------------------------!
@@ -210,6 +209,8 @@ subroutine cross_product(x, y, z)
   z(1) = x(2)*y(3) - x(3)*y(2)
   z(2) = x(3)*y(1) - x(1)*y(3)
   z(3) = x(1)*y(2) - x(2)*y(1)
+
+end subroutine cross_product
 
 end module global_variables
 
