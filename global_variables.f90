@@ -52,8 +52,12 @@ module global_variables
   integer :: step                 !steps of calculate the physical quantities
   integer :: multistep            !multistep
   real*8  :: dr                   !length of each moving
-  real*8  :: total_num = 0        !Total choose number
-  real*8  :: accept_num = 0       !accepted number
+  real*8  :: total_num_p = 0      !Total choose number
+  real*8  :: accept_num_p = 0     !accepted number
+  real*8  :: total_num_ion = 0    !Total choose number
+  real*8  :: accept_num_ion = 0   !accepted number
+  real*8  :: total_num_pH = 0     !Total choose number
+  real*8  :: accept_num_pH = 0    !accepted number
   real*8  :: accept_ratio_p       !accepted ratio of polymer
   real*8  :: accept_ratio_ion     !accepted ratio of ions
   real*8  :: accept_ratio_pH      !accepted ratio of pH
@@ -211,6 +215,17 @@ subroutine cross_product(x, y, z)
   z(3) = x(1)*y(2) - x(2)*y(1)
 
 end subroutine cross_product
+
+
+subroutine Lagrange_to_Euler(i,j)
+  implicit none
+  integer, intent(in) :: i
+  integer, intent(out) :: j
+
+  j = pos(i-base,7) + base
+
+end subroutine Lagrange_to_Euler
+
 
 end module global_variables
 

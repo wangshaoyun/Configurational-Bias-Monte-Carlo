@@ -272,13 +272,9 @@ subroutine CBMC_Move( EE, DeltaE, n0 )
 
       call choose_ions
 
-      if (pos_ip0(4)/=0) then
+      call delta_energy_ions_move(DeltaE)
 
-        call delta_energy_ions_move(DeltaE)
-
-        call ions_move_or_not(DeltaE,EE)
-
-      end if
+      call ions_move_or_not(DeltaE,EE)
 
     end do
 
@@ -363,6 +359,11 @@ subroutine choose_ions
 
   call random_number(rnd)
   ip = int(rnd*(NN-Npe-Npc))+1+Npe  
+
+  if (pos(ip,4)==0) then
+    call random_number(rnd)
+    ip = int(rnd*(NN-Npe-Npc))+1+Npe    
+  end if 
 
   pos_ip0=pos(ip,1:4)
   call random_number(rnd1)
@@ -498,14 +499,15 @@ subroutine regrow( w , DeltaE )
   xt = 0
   wt = 0
   w = 1
+  pos(base+1:base+Nml,:) = pos_new
   do i = 1, num_newconf
     n = Nml - num_newconf + i 
     if ( num_newconf == Nml .and. i == 1 ) then 
-        call random_number(rnd)
-        xt(1,1) = rnd(1) * Lx
-        xt(1,2) = rnd(2) * Ly
-        xt(1,3) = rnd(3) * Lz
-        call generate_starting_point(xt(1,1:3), lg1, lg2)
+      call random_number(rnd)
+      xt(1,1) = rnd(1) * Lx
+      xt(1,2) = rnd(2) * Ly
+      xt(1,3) = rnd(3) * Lz
+      call generate_starting_point(xt(1,1:3), lg1, lg2)
       do while(lg1 .and. lg2) then
         call random_number(rnd)
         xt(1,1) = rnd(1) * Lx
@@ -518,6 +520,7 @@ subroutine regrow( w , DeltaE )
       w = k_try*exp(-Beta*eni)
       DeltaE = DeltaE + eni(1)
       pos_new(n,1:3) = xt(1,1:3)
+      pos(base+n,1:3) = xt(1,1:3)
     else
       sumw = 0
       do j = 1, k_try
@@ -529,6 +532,7 @@ subroutine regrow( w , DeltaE )
       w = w * sumw
       call select_move( wt, sumw, m )
       pos_new(n, 1:3) = xt(m, 1:3)
+      pos(base+n,1:3) = xt(m, 1:3)
       DeltaE = DeltaE + eni(n)
     end if
     call regrow_list(pos_new(n,6)+base,pos_new(n,1:4))
@@ -555,8 +559,7 @@ subroutine generate_starting_point(xt, lg1, lg2)
   k = hoc_lj(icelx,icely,icelz)  
   lg2 = .false.  
   do while (k/=0) 
-    m = pos(k-base,7)
-    n = m + base
+    call Lagrange_to_Euler(k,n)
     rij = xt - pos(n,1:3)
     call periodic_condition(rij)
     rr = sqrt(rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3))
@@ -618,6 +621,8 @@ subroutine next_c2(n, xt, lg)
     xt(4) = pos_old(n, 4)
   end if
 
+  call periodic_condition(xt(1:3))
+
 end subroutine next_c2
 
 
@@ -639,6 +644,8 @@ subroutine next_c3(n, xt, lg)
     xt(4) = pos_old(n, 4)
   end if
 
+  call periodic_condition(xt(1:3))
+
 end subroutine next_c3  
 
 
@@ -658,6 +665,8 @@ subroutine next_cn(n, xt)
     xt(1:3) = pos_old(n-1,1:3) + l*b
     xt(4) = pos_old(n,4)
   end if
+
+  call periodic_condition(xt(1:3))
 
 end subroutine next_cn
 
@@ -842,14 +851,14 @@ subroutine CBMC_Move_or_not(wo, wn, EE, DeltaE)
   !Judge whether move or not
   call random_number( rnd )
   if (rnd < (wn/wo*exp(-beta*Del_E)) ) then
-    pos(base+1:base+Nml,:) = pos_new(:,:)
-    accept_num = accept_num + num_newconf
+    accept_num_p = accept_num_p + num_newconf
     EE = EE + Del_E + DeltaE
     call update_rhok
   else
+    pos(base+1:base+Nml,:) = pos_old
     call grow_list(.false.)
   end if
-  total_num = total_num + num_newconf
+  total_num_p = total_num_p + num_newconf
 
 end subroutine CBMC_Move_or_not
 

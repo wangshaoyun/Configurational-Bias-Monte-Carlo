@@ -362,8 +362,9 @@ subroutine energy_short(xt, eni)
       icely = cell_near_list_r(ncel,i,2)
       icelz = cell_near_list_r(ncel,i,3)
       j = hoc_r(icelx,icely,icelz) 
-      do while (j/=0) 
-        rij = xt(1:3) - pos(j,1:3)
+      do while (j/=0)
+        call Lagrange_to_Euler(j,k) 
+        rij = xt(1:3) - pos(k,1:3)
         call periodic_condition(rij)
         rr = sqrt(rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3))
         if (rr<rcc) then
@@ -386,7 +387,8 @@ subroutine energy_short(xt, eni)
     icelz = cell_near_list_lj(ncel,i,3)
     j = hoc_lj(icelx,icely,icelz) 
     do while (j/=0) 
-      rij = xt(1:3) - pos(j,1:3)
+      call Lagrange_to_Euler(j,k)
+      rij = xt(1:3) - pos(k,1:3)
       call periodic_condition(rij)
       rr = rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3)
       if ( rr < rcl2 ) then
@@ -418,8 +420,8 @@ subroutine energy_long(DeltaE)
   complex(kind=8) :: eikx1(num_newconf, -Kmax1:Kmax1 )
   complex(kind=8) :: eiky0(num_newconf, -Kmax2:Kmax2 )
   complex(kind=8) :: eiky1(num_newconf, -Kmax2:Kmax2 )
-  complex(kind=8) :: eikz0(num_newconf, -Kmax3:Kmax3 )
-  complex(kind=8) :: eikz1(num_newconf, -Kmax3:Kmax3 )
+  complex(kind=8) :: eikz0(num_newconf, 0:Kmax3 )
+  complex(kind=8) :: eikz1(num_newconf, 0:Kmax3 )
   complex(kind=8) :: eikr0, eikr1
   real*8  :: c1, c2, c3
   integer :: ord(3), i, m, n1, n2, p, q, r
@@ -471,7 +473,6 @@ subroutine energy_long(DeltaE)
 
     eikx0(i,-1) = conjg(eikx0(i,1))
     eiky0(i,-1) = conjg(eiky0(i,1))
-    eikz0(i,-1) = conjg(eikz0(i,1))
 
     eikx1(i,0)  = (1,0)
     eiky1(i,0)  = (1,0)
@@ -483,9 +484,8 @@ subroutine energy_long(DeltaE)
 
     eikx1(i,-1) = conjg(eikx1(i,1))
     eiky1(i,-1) = conjg(eiky1(i,1))
-    eikz1(i,-1) = conjg(eikz1(i,1))
 
-  end do    
+  end do
 
   do p=2, Kmax1
     do m=1, n1
@@ -506,9 +506,7 @@ subroutine energy_long(DeltaE)
   do r=2, Kmax3
     do m=1, n1
       eikz0(m,r)=eikz0(m,r-1)*eikz0(m,1)
-      eikz0(m,r)=conjg(eikz0(m,q))
       eikz1(m,r)=eikz1(m,r-1)*eikz1(m,1)
-      eikz1(m,r)=conjg(eikz1(m,q))
     end do
   end do
 
@@ -525,6 +523,9 @@ subroutine energy_long(DeltaE)
   DeltaE = sum( exp_ksqr * ( 2*Real(rho_k*delta_rhok) &
                       + conjg(delta_rhok)*delta_rhok ) )
 
+  deallocate(charge1)
+  deallocate(charge2)
+
 end subroutine energy_long
 
 
@@ -538,23 +539,22 @@ subroutine delta_energy_ions_move(DeltaE)
   complex(kind=8) :: eikz0( -Kmax3:Kmax3 ), eikz1( -Kmax3:Kmax3 )
   complex(kind=8) :: eikr0, eikr1
   real*8  :: rij(3), rr
-  real*8  :: EE1, EE2
   real*8  :: inv_rr2, inv_rr6, inv_rr12
   real*8  :: c1, c2, c3
   integer :: i, j, k, ord(3), p, q, r
   integer :: icelx,icely,icelz,ncel
-  EE1 = 0
-  EE2 = 0
+  
+  DeltaE = 0
 
-  call Delta_lj_energy(.true., ip, pos_ip1, EE1)
+  call Delta_lj_Energy(.true., ip, pos_ip1, DeltaE)
 
-  call Delta_lj_energy(.false., ip, pos_ip0, EE1)
+  call Delta_lj_Energy(.false., ip, pos_ip0, DeltaE)
 
-  call Delta_real_energy(.true., ip, pos_ip1, EE2)
+  call Delta_real_energy(.true., ip, pos_ip1, DeltaE)
 
-  call Delta_real_energy(.false., ip, pos_ip0, EE2)
+  call Delta_real_energy(.false., ip, pos_ip0, DeltaE)
 
-  call Delta_Reciprocal_Energy(pos_ip0, pos_ip1, EE2)
+  call Delta_Reciprocal_Energy(pos_ip0, pos_ip1, DeltaE)
 
 end subroutine delta_energy_ions_move
 
@@ -565,33 +565,28 @@ subroutine Delta_energy_pH(DeltaE)
   real*8, intent(out) :: DeltaE
   real*8 :: EE1, EE2
 
-  EE1 = 0
-  EE2 = 0
+  DeltaE = 0
   if ( pos_ip0(4) == 0 ) then    !add
 
-    call Delta_lj_energy(.true., ip1, pos_ipi1, EE1)
+    call Delta_lj_energy(.true., ip1, pos_ipi1, DeltaE)
 
-    call delta_real_energy(.true., ip1, pos_ipi1, EE1)
+    call delta_real_energy(.true., ip1, pos_ipi1, DeltaE)
 
-    call delta_real_energy(.true., ip, pos_ip1, EE1)
+    call delta_real_energy(.true., ip, pos_ip1, DeltaE)
 
-    call Delta_reciprocal_energy_pH(.true., pos_ip1, pos_ipi1, EE2)
+    call Delta_reciprocal_energy_pH(.true., pos_ip1, pos_ipi1, DeltaE)
 
   else        !delete
 
-    call Delta_lj_energy(.false., ip1, pos_ipi0, EE1)
+    call Delta_lj_energy(.false., ip1, pos_ipi0, DeltaE)
 
-    call delta_real_energy(.false., ip1, pos_ipi0, EE1)
+    call delta_real_energy(.false., ip1, pos_ipi0, DeltaE)
 
-    call delta_real_energy(.false., ip, pos_ip1, EE1)
+    call delta_real_energy(.false., ip, pos_ip1, DeltaE)
 
-    call Delta_reciprocal_energy_pH(.false., pos_ip0, pos_ipi0, EE2)
-
-    EE2 = - EE2
+    call Delta_reciprocal_energy_pH(.false., pos_ip0, pos_ipi0, DeltaE)
 
   end if
-
-  DeltaE = DeltaE + EE1 + EE2
 
 end subroutine Delta_energy_pH
 
@@ -608,7 +603,7 @@ subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
   logical, intent(in) :: lg
   real*8  :: EE, sigma2
   real*8  :: rij(3), rr, inv_rr2, inv_rr6, inv_rr12
-  integer :: i, j, k, l
+  integer :: i, j, k
 
   EE     = 0
   sigma2 = sigma * sigma
@@ -623,7 +618,8 @@ subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
     icelz = cell_near_list_lj(ncel,i,3)
     j = hoc_lj(icelx,icely,icelz) 
     do while (j/=0) 
-      rij = ri(1:3) - pos(j,1:3)
+      call Lagrange_to_Euler(j,k)
+      rij = ri(1:3) - pos(k,1:3)
       call periodic_condition(rij)
       rr = rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3)
       if ( rr < rcl2 ) then
@@ -653,7 +649,7 @@ subroutine Delta_real_energy(lg, np, ri, DeltaE)
   integer, intent(in) :: np
   logical, intent(in) :: lg  
   real*8  :: rij(3), rr, EE
-  integer :: i, j, k, l
+  integer :: i, j, k
 
   EE = 0
   icelx = int(ri(1)/clx1) + 1
@@ -666,7 +662,8 @@ subroutine Delta_real_energy(lg, np, ri, DeltaE)
     icelz = cell_near_list_r(ncel,i,3)
     j = hoc_r(icelx,icely,icelz) 
     do while (j/=0) 
-      rij = ri(1:3) - pos(j,1:3)
+      call Lagrange_to_Euler(j,k)
+      rij = ri(1:3) - pos(k,1:3)
       call periodic_condition(rij)
       rr = sqrt(rij(1)*rij(1)+rij(2)*rij(2)+rij(3)*rij(3))
       if (rr<rcc) then
@@ -1519,20 +1516,20 @@ subroutine grow_list(new_conf)
     do i = 1, num_newconf
       n = Nml + 1 - i
       if (pos_new(n,4)/=0) then
-        np1 = pos_new(n,7) + base
+        np1 = pos_new(n,6) + base
         call delete_cell_list_r(np1, pos_new(n,1:4))
       end if
-      np2 = pos_new(n,7) + base
+      np2 = pos_new(n,6) + base
       call delete_cell_list_lj(np2, pos_new(n,1:4))
     end do
 
     do i = 1, num_newconf
       n = Nml + 1 - i
       if (pos_old(n,4)/=0) then
-        np1 = pos_old(n,7) + base
+        np1 = pos_old(n,6) + base
         call add_cell_list_r(np1, pos_old(n,1:4))
       end if
-      np2 = pos_old(n,7) + base 
+      np2 = pos_old(n,6) + base 
       call add_cell_list_lj(np2, pos_old(n,1:4))
     end do
   end if
