@@ -18,7 +18,6 @@ subroutine initialize_parameters
   !------------------------------------!
   use global_variables
   implicit none
-  logical alive 
   !
   !Input parameters
   call read_data
@@ -37,6 +36,7 @@ end subroutine initialize_parameters
 subroutine data_operation
   use global_variables
   implicit none
+  logical :: alive
   integer :: charge_ions
 
   Npe = Nml * Ngl
@@ -44,7 +44,7 @@ subroutine data_operation
     Nq_PE = 0
   else
     if (man/=0) then
-      Nq_PE = Nml/man*Nga
+      Nq_PE = Nml/man*Ngl
     else
       Nq_PE = 0
     end if
@@ -61,7 +61,7 @@ subroutine data_operation
   !
   ! charges on cylinder
   Nqc = nint( Lz * rho_c )
-  qqc = Npc / Nqc * (-qq)/abs(qq)
+  qqc = 1. * Npc / Nqc * (-qq)/abs(qq)
   !
   ! total charges and particles
   Nq = Nq_PE * ( abs(qq)+1 ) + Nq_salt_ions * ( abs(qqi) + 1 ) + Npc + Nqc
@@ -222,9 +222,21 @@ subroutine continue_read_data(l)
   close(19)
 
   open(21, file = './data/rdf.txt')
-  open(22, file = './data/gr.txt' )
+  open(22, file = './data/gr_p.txt' )
+  open(23, file = './data/gr_p_a.txt' )
+  open(24, file = './data/gr_s.txt' )
+  open(25, file = './data/gr_s_a.txt' )
+  open(26, file = './data/gr_c_a.txt' )
     read(21,*) ((rdf(i,j),j=1,2),i=1,SizeHist)
-    read(22,*) ((gr(i,j),j=1,2), i=1,SizeHist)
+    read(22,*) ((gr_p(i,j),j=1,2), i=1,SizeHist)
+    read(23,*) ((gr_p_a(i,j),j=1,2), i=1,SizeHist)
+    read(24,*) ((gr_s(i,j),j=1,2), i=1,SizeHist)
+    read(25,*) ((gr_s_a(i,j),j=1,2), i=1,SizeHist)
+    read(26,*) ((gr_c_a(i,j),j=1,2), i=1,SizeHist)
+  close(26)
+  close(25)
+  close(24)
+  close(23)
   close(22)
   close(21)
 
@@ -235,7 +247,7 @@ subroutine continue_read_data(l)
     end if
   end do
 
-  Nq_ions_net
+  Nq_ions_net = 0
   do i = Npe+1, NN-Npc
     if (pos(i,4)/=0) then
       Nq_ions_net = Nq_ions_net + 1
@@ -335,7 +347,7 @@ subroutine compute_radial_distribution_function
     end if
   end do
 
-  do i = Npe+Nq_PE+Nq_salt_ions+1, Npe+Nq_PE+Nq_salt_ions*(1+abs(qqi))
+  do i = Npe+Nq_PE+Nq_salt_ions+1, Npe+Nq_PE+Nq_salt_ions*nint((1+abs(qqi)))
     rr = sqrt(pos(i,1)*pos(i,1) + pos(i,2)*pos(i,2))
     if (rr<Lx/2) then
       k = int( sqrt(rr)/del_r ) + 1
@@ -414,39 +426,41 @@ subroutine write_pos1(j)
     total_time=total_time+finished-started
     call cpu_time(started)
     write(109,*) total_time
-    write(109,*) 'time:(minutes):', real(total_time/60)
-    write(109,*) 'time:(hours)  :', real(total_time/3600)
-    write(109,*) 'time:(days)   :', real(total_time/86400)
-    write(109,*) 'accept_ratio   :', accept_ratio
-    write(109,*) 'Lx            :', Lx
-    write(109,*) 'Ly            :', Ly
-    write(109,*) 'Lz            :', Lz
-    write(109,*) 'Nq_net        :', Nq_net
-    write(109,*) 'Nq_pe_net     :', Nq_pe_net
-    write(109,*) 'Nq_ions_net   :', Nq_ions_net
-    write(109,*) 'Ngl           :', Ngl
-    write(109,*) 'Nml           :', Nml
-    write(109,*) 'Nq            :', Nq
-    write(109,*) 'NN            :', NN
-    write(109,*) 'Nq_PE         :', Nq_PE
-    write(109,*) 'Npe           :', Npe
-    write(109,*) 'Nq_salt_ions  :', Nq_salt_ions
-    write(109,*) 'rho           :', rho
-    write(109,*) 'rho_c         :', rho_c
-    write(109,*) 'Beta          :', Beta
-    write(109,*) 'qq            :', qq
-    write(109,*) 'qqi           :', qqi
-    write(109,*) 'man           :', man
-    write(109,*) 'pH-pKa        :', pH_pKa
-    write(109,*) 'restart_continue:',restart_or_continue
-    write(109,*) 'StepNum0      :', StepNum0
-    write(109,*) 'StepNum       :', StepNum
-    write(109,*) 'StepNum0+StepNum:', (StepNum0+StepNum)
-    write(109,*) 'DeltaStep     :', DeltaStep
-    write(109,*) 'DeltaStep1    :', DeltaStep1
-    write(109,*) 'DeltaStep2    :', DeltaStep2
-    write(109,*) 'DeltaStep3    :', DeltaStep3
-    write(109,*) 'multistep     :', multistep
+    write(109,*) 'time:(minutes)    :', real(total_time/60)
+    write(109,*) 'time:(hours)      :', real(total_time/3600)
+    write(109,*) 'time:(days)       :', real(total_time/86400)
+    write(109,*) 'accept_ratio_p    :', accept_ratio_p
+    write(109,*) 'accept_ratio_ion  :', accept_ratio_ion
+    write(109,*) 'accept_ratio_pH   :', accept_ratio_pH
+    write(109,*) 'Lx                :', Lx
+    write(109,*) 'Ly                :', Ly
+    write(109,*) 'Lz                :', Lz
+    write(109,*) 'Nq_net            :', Nq_net
+    write(109,*) 'Nq_pe_net         :', Nq_pe_net
+    write(109,*) 'Nq_ions_net       :', Nq_ions_net
+    write(109,*) 'Ngl               :', Ngl
+    write(109,*) 'Nml               :', Nml
+    write(109,*) 'Nq                :', Nq
+    write(109,*) 'NN                :', NN
+    write(109,*) 'Nq_PE             :', Nq_PE
+    write(109,*) 'Npe               :', Npe
+    write(109,*) 'Nq_salt_ions      :', Nq_salt_ions
+    write(109,*) 'rho               :', rho
+    write(109,*) 'rho_c             :', rho_c
+    write(109,*) 'Beta              :', Beta
+    write(109,*) 'qq                :', qq
+    write(109,*) 'qqi               :', qqi
+    write(109,*) 'man               :', man
+    write(109,*) 'pH-pKa            :', pH_pKa
+    write(109,*) 'restart_continue  :',restart_or_continue
+    write(109,*) 'StepNum0          :', StepNum0
+    write(109,*) 'StepNum           :', StepNum
+    write(109,*) 'StepNum0+StepNum  :', (StepNum0+StepNum)
+    write(109,*) 'DeltaStep         :', DeltaStep
+    write(109,*) 'DeltaStep1        :', DeltaStep1
+    write(109,*) 'DeltaStep2        :', DeltaStep2
+    write(109,*) 'DeltaStep3        :', DeltaStep3
+    write(109,*) 'multistep         :', multistep
   close(109)
 
 end subroutine write_pos1

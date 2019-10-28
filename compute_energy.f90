@@ -91,12 +91,6 @@ module compute_energy
   ! head of chains, inverse cell list
   integer, allocatable, dimension(:,:,:), private :: inv_hoc_r
   !
-  !cell list in charged particles
-  integer, allocatable, dimension( : ), private :: cell_list_q
-  !
-  !cell list in charged particles
-  integer, allocatable, dimension( : ), private :: inv_cell_list_q
-  !
   !Coulomb energy of i,j in real space
   real,  allocatable, dimension(:), private :: real_ij
   !
@@ -184,8 +178,9 @@ subroutine error_analysis(EE1)
   !--------------------------------------!
   use global_variables
   implicit none
-  real*8 :: EE0,tol1
+  real*8 :: EE0,tol1, rmse
   real*8, intent(out) :: EE1
+
 
   tol1 = tol
   tol = 5                
@@ -232,6 +227,8 @@ subroutine error_analysis(EE1)
 
   rmse = abs(EE1-EE0)/EE0
 
+  write(*,*) rmse
+
 end subroutine error_analysis
 
 
@@ -269,7 +266,7 @@ subroutine LJ_Energy (EE)
   implicit none
   real*8, intent(inout) :: EE
   integer :: i, j, k
-  integer :: icelx, icely, icelz
+  integer :: icelx, icely, icelz, ncel
   real*8  :: rr, rij(3), inv_rr2, inv_rr6, inv_rr12, sigma2
 
   EE = 0
@@ -305,11 +302,11 @@ end subroutine LJ_energy
 subroutine Coulomb_Energy(EE)
   use global_variables
   implicit none
+  real*8, intent(out) :: EE 
   integer :: i, j, k
-  integer :: icelx, icely, icelz
+  integer :: icelx, icely, icelz, ncel
   real*8  :: rr, rij(3), EE1
 
-  EE = 0
   do i = 1, NN
     if (pos(i,4)/=0) then
       icelx = int(pos(i,1)/clx) + 1
@@ -461,7 +458,7 @@ subroutine energy_long(DeltaE)
 
   do i = 1, n1
 
-    m = charge_cbmc(i)
+    m = charge1(i)
 
     eikx0(i,0)  = (1,0)
     eiky0(i,0)  = (1,0)
@@ -473,6 +470,8 @@ subroutine energy_long(DeltaE)
 
     eikx0(i,-1) = conjg(eikx0(i,1))
     eiky0(i,-1) = conjg(eiky0(i,1))
+
+    m = charge2(i)
 
     eikx1(i,0)  = (1,0)
     eiky1(i,0)  = (1,0)
@@ -515,8 +514,8 @@ subroutine energy_long(DeltaE)
     ord = totk_vectk(i,:)
     do m = 1, n1
       delta_rhok(i) = delta_rhok(i)  &
-      + ( pos_new(charge2(m))*eikx1(m,ord(1))*eiky1(m,ord(2))*eikz1(m,ord(3)) &
-      -   pos_old(charge1(m))*eikx0(m,ord(1))*eiky0(m,ord(2))*eikz0(m,ord(3)) )
+      +(pos_new(charge2(m),4)*eikx1(m,ord(1))*eiky1(m,ord(2))*eikz1(m,ord(3)) &
+      - pos_old(charge1(m),4)*eikx0(m,ord(1))*eiky0(m,ord(2))*eikz0(m,ord(3)))
     end do
   end do
 
@@ -568,23 +567,23 @@ subroutine Delta_energy_pH(DeltaE)
   DeltaE = 0
   if ( pos_ip0(4) == 0 ) then    !add
 
-    call Delta_lj_energy(.true., ip1, pos_ipi1, DeltaE)
+    call Delta_lj_energy(.true., ipi, pos_ipi1, DeltaE)
 
-    call delta_real_energy(.true., ip1, pos_ipi1, DeltaE)
+    call Delta_real_energy(.true., ipi, pos_ipi1, DeltaE)
 
-    call delta_real_energy(.true., ip, pos_ip1, DeltaE)
+    call Delta_real_energy(.true., ip, pos_ip1, DeltaE)
 
-    call Delta_reciprocal_energy_pH(.true., pos_ip1, pos_ipi1, DeltaE)
+    call Delta_Reciprocal_Energy_pH(.true., pos_ip1, pos_ipi1, DeltaE)
 
   else        !delete
 
-    call Delta_lj_energy(.false., ip1, pos_ipi0, DeltaE)
+    call Delta_lj_energy(.false., ipi, pos_ipi0, DeltaE)
 
-    call delta_real_energy(.false., ip1, pos_ipi0, DeltaE)
+    call Delta_real_energy(.false., ipi, pos_ipi0, DeltaE)
 
-    call delta_real_energy(.false., ip, pos_ip1, DeltaE)
+    call Delta_real_energy(.false., ip, pos_ip1, DeltaE)
 
-    call Delta_reciprocal_energy_pH(.false., pos_ip0, pos_ipi0, DeltaE)
+    call Delta_Reciprocal_Energy_pH(.false., pos_ip0, pos_ipi0, DeltaE)
 
   end if
 
@@ -604,6 +603,7 @@ subroutine Delta_lj_Energy(lg, np, ri, DeltaE)
   real*8  :: EE, sigma2
   real*8  :: rij(3), rr, inv_rr2, inv_rr6, inv_rr12
   integer :: i, j, k
+  integer :: icelx, icely, icelz, ncel
 
   EE     = 0
   sigma2 = sigma * sigma
@@ -650,6 +650,7 @@ subroutine Delta_real_energy(lg, np, ri, DeltaE)
   logical, intent(in) :: lg  
   real*8  :: rij(3), rr, EE
   integer :: i, j, k
+  integer :: icelx, icely, icelz, ncel
 
   EE = 0
   icelx = int(ri(1)/clx1) + 1
@@ -695,7 +696,7 @@ subroutine Delta_Reciprocal_Energy(r1, r2, DeltaE)
   complex(kind=8) :: eikz0( -Kmax3:Kmax3 ), eikz1( -Kmax3:Kmax3 )
   complex(kind=8) :: eikr0, eikr1
   real*8  :: c1, c2, c3
-  integer :: ord(3), p, q, r
+  integer :: ord(3), p, q, r, i
 
   c1 = 2*pi / Lx
   c2 = 2*pi / Ly
@@ -777,7 +778,7 @@ subroutine Delta_Reciprocal_Energy_pH(lg, r1, r2, DeltaE)
   complex(kind=8) :: eikz0( -Kmax3:Kmax3 ), eikz1( -Kmax3:Kmax3 )
   complex(kind=8) :: eikr0, eikr1
   real*8  :: c1, c2, c3
-  integer :: ord(3), p, q, r
+  integer :: ord(3), p, q, r, i
 
   c1 = 2*pi / Lx
   c2 = 2*pi / Ly
@@ -1288,7 +1289,7 @@ subroutine Initialize_lj_cell_list
   ! maxium situation, (125*125*100,28,3), 500Mb RAM is needed.
   if(allocated(cell_near_list_lj)) deallocate(cell_near_list_lj)
   allocate(cell_near_list_lj(nclx*ncly*nclz,27,3))
-  cell_near_list = 0
+  cell_near_list_lj = 0
   m = 0
   do i = 1, nclx
     do j = 1, ncly
@@ -1386,7 +1387,7 @@ subroutine add_cell_list_r(np,rr)
     inv_hoc_r(icelx,icely,icelz) = np
   end if
 
-  cell_list_r(ii) = hoc_r(icelx,icely,icelz)
+  cell_list_r(np) = hoc_r(icelx,icely,icelz)
   hoc_r(icelx,icely,icelz) = np
 
 end subroutine add_cell_list_r
@@ -1398,6 +1399,7 @@ subroutine delete_cell_list_lj(np,rr)
   integer, intent(in) :: np
   real*8, dimension(4), intent(in) :: rr
   integer :: icelx,icely,icelz
+  integer :: bfi, nti
 
   icelx = int(rr(1)/clx)+1
   icely = int(rr(2)/cly)+1
@@ -1441,7 +1443,7 @@ subroutine add_cell_list_lj(np,rr)
     inv_hoc_r(icelx,icely,icelz) = np
   end if
 
-  cell_list_r(ii) = hoc_r(icelx,icely,icelz)
+  cell_list_r(np) = hoc_r(icelx,icely,icelz)
   hoc_r(icelx,icely,icelz) = np
 
 end subroutine add_cell_list_lj
@@ -1485,21 +1487,21 @@ subroutine update_cell_list_pH(lg)
 
     call add_cell_list_r(ip, pos_ip1)
 
-    call add_cell_list_lj(ip1, pos_ipi1)
+    call add_cell_list_lj(ipi, pos_ipi1)
 
     call add_cell_list_r(ip, pos_ip1)
 
-    call add_cell_list_r(ip1, pos_ipi1)
+    call add_cell_list_r(ipi, pos_ipi1)
 
   else
 
     call delete_cell_list_lj(ip, pos_ip1)
 
-    call delete_cell_list_lj(ip1, pos_ipi1)
+    call delete_cell_list_lj(ipi, pos_ipi1)
 
     call delete_cell_list_r(ip, pos_ip1)
 
-    call delete_cell_list_r(ip1, pos_ipi1)
+    call delete_cell_list_r(ipi, pos_ipi1)
 
   end if
 
@@ -1507,7 +1509,7 @@ end subroutine update_cell_list_pH
 
 
 subroutine grow_list(new_conf)
-  use compute_energy
+  use global_variables
   implicit none
   logical, intent(in) :: new_conf
   integer :: i, np1, np2, n

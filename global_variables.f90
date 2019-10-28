@@ -185,7 +185,7 @@ subroutine gauss(sigma, mu, x)
   !1.
   !--------------------------------------!
   implicit none
-  real*8, intent(in)  :: simga
+  real*8, intent(in)  :: sigma
   real*8, intent(in)  :: mu
   real*8, intent(out) :: x
   real*8 :: r, v1, v2, rnd1, rnd2
@@ -199,7 +199,7 @@ subroutine gauss(sigma, mu, x)
     r = v1 * v1 + v2 * v2
   end do
   x = v1 * sqrt( -2*log(r)/r )
-  x = mu + simga * x
+  x = mu + sigma * x
 
 end subroutine gauss
 

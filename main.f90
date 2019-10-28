@@ -88,7 +88,7 @@ implicit none
 !###############Finished##############!
   call cpu_time(finished)
   total_time=finished-started+total_time
-  call write_time(total_time)
+  call write_pos1(step)
   write(*,*) 'finished!'
 !#####################################!
 
