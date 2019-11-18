@@ -11,8 +11,8 @@
 >[1] Frenkel D, Klein M, Parrrinello M. "Understanding Molecular Simulation: From Algorithm to Applications". 2nd ed. Singapore: Elsevier Pte Ltd, 2002.  
 >[2] Allen M P, Tildesley D J. Computer simulation of liquids. 2nd ed. Oxford: Oxford University Press, 2017.  
 >[3] Zhang F, Wang S, Ding H, Tong C. Simulations of 3-arm polyelectrolyte star brushes under external electric fields. *Soft Matter*, **15** (12), 2560-2570, 2019.  
->[4] S. Y. Wang, C. H. Tong. Cell-lists Method for Monte Carlo Simulation, to be submitted.
->[5] K. Bernacki, B. Hetenyi, B. J. Berne. "Multiple "Time Step" Monte Carlo Simulations: Application to charged systems with Ewald Summation." *Journal of Chemical Physics*, **121** (1), pp.44-50, 2004. 
+>[4] S. Y. Wang, C. H. Tong. Cell-lists Method for Monte Carlo Simulation, to be submitted.  
+>[5] K. Bernacki, B. Hetenyi, B. J. Berne. "Multiple "Time Step" Monte Carlo Simulations: Application to charged systems with Ewald Summation." *Journal of Chemical Physics*, **121** (1), pp.44-50, 2004.  
 >[6] Ulrich Essmann, Lalith Perera, Max L. Berkowitz, Tom Darden, Hsing Lee, Lee G Pedersen. "A Smooth Particle Mesh Ewald Method." *Journal of Chemical Physics*, **103** (19), pp. 8577-8593, 1995.  
 
 ## About Parameter Files 
