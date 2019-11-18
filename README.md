@@ -16,7 +16,7 @@
 >[6] Ulrich Essmann, Lalith Perera, Max L. Berkowitz, Tom Darden, Hsing Lee, Lee G Pedersen. "A Smooth Particle Mesh Ewald Method." *Journal of Chemical Physics*, **103** (19), pp. 8577-8593, 1995.  
 
 ## About Parameter Files 
-+ energy_data.txt: It is a parameter file which includes Bjerrum length, external electric field
++ energy_data.txt: It is a parameter file which includes Bjerrum length, FENE parameters, bending stiffiness and torsion stiffness.
 + system_data.txt: It is a parameter file which includes system, time, brushes parameter.  
 
 ## Compiling files
